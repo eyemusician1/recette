@@ -1,0 +1,17 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/CormorantGaramond-Light.ttf",
+      "sha1": "df5f8bc368bf087c76ff4c2460d447081dc73df3"
+    },
+    {
+      "path": "assets/fonts/IMFellEnglish-Italic.ttf",
+      "sha1": "9df3afd420f0c7a34aebd4fbd2c361b072ee6b0d"
+    },
+    {
+      "path": "assets/fonts/PlayfairDisplay-BoldItalic.ttf",
+      "sha1": "5e5a5d9a16f0c8a5ffd6afbc5ffa5b5af51916b1"
+    }
+  ]
+}
