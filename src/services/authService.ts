@@ -45,7 +45,7 @@ export async function signOut() {
 export async function upsertUserProfile(user: any) {
   const ref = firestore().collection('users').doc(user.uid);
   const snap = await ref.get();
-  if (!snap.exists()) {
+  if (!snap.exists) {
     await ref.set({
       uid: user.uid,
       displayName: user.displayName ?? '',

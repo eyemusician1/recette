@@ -3,6 +3,7 @@
 .env.local
 .env.development
 .env.production
+src/env.ts
 
 # OSX
 #

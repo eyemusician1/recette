@@ -2,17 +2,22 @@ import React, {useState, useEffect, useRef} from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import {palette, spacing, typography} from '../tokens';
 import Tts from 'react-native-tts';
+import Ion from 'react-native-vector-icons/Ionicons';
+import {ENV} from '../env';
+import auth from '@react-native-firebase/auth';
+import {addCookHistory} from '../services/recipeService';
+import {AskRemy} from '../components/AskRemy';
+
+const GROQ_API_KEY = ENV.GROQ_API_KEY;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Recipe = {
@@ -32,11 +37,6 @@ type Step = {
   timerSeconds?: number;
 };
 
-type ChatMessage = {
-  role: 'remy' | 'user';
-  text: string;
-};
-
 type Phase = 'intro' | 'checklist' | 'steps' | 'done';
 
 // ─── TTS Helper ───────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ function stopSpeaking() {
 }
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_API_KEY = process.env.GROQ_API_KEY ?? '';
+
 const MODEL = 'llama-3.3-70b-versatile';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ const timerStyles = StyleSheet.create({
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-export function CookScreen({route}: any) {
+export function CookScreen({route, navigation}: any) {
   const recipe: Recipe | undefined = route?.params?.recipe;
 
   const [phase, setPhase] = useState<Phase>('intro');
@@ -184,28 +184,38 @@ export function CookScreen({route}: any) {
   const [currentStep, setCurrentStep] = useState(0);
   const [checked, setChecked] = useState<boolean[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatLoading, setChatLoading] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subSuggestions, setSubSuggestions] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
-  // Initialize checklist
+  // Reset all state when recipe changes + setup TTS once
   useEffect(() => {
-    // Setup TTS
     Tts.setDefaultLanguage('en-US');
+    Tts.setDefaultVoice('en-us-x-iom-local');
     Tts.setDefaultRate(0.5);
-    Tts.setDefaultPitch(1.0);
-
-    if (recipe) {
-      setChecked(new Array(recipe.ingredients.length).fill(false));
-      loadIntro();
-    }
+    Tts.setDefaultPitch(0.9);
 
     return () => {
       stopSpeaking();
     };
   }, []);
+
+  // Reset and reload whenever the recipe changes
+  const recipeId = recipe?.id ?? recipe?.title ?? '';
+  useEffect(() => {
+    if (!recipe) {return;}
+    // Reset all phase state
+    stopSpeaking();
+    setPhase('intro');
+    setIntroText('');
+    setSteps([]);
+    setCurrentStep(0);
+    setChecked(new Array(recipe.ingredients.length).fill(false));
+    setMuted(false);
+    // Load fresh intro for the new recipe
+    loadIntro();
+  }, [recipeId]);
 
   const loadIntro = async () => {
     if (!recipe) return;
@@ -279,27 +289,34 @@ timerSeconds is optional — only include it if the step requires waiting (boili
     if (currentStep > 0) setCurrentStep(s => s - 1);
   };
 
-  const sendChat = async () => {
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput.trim();
-    setChatInput('');
-    setChatMessages(m => [...m, {role: 'user', text: userMsg}]);
-    setChatLoading(true);
 
+
+  // ─── Ingredient substitutions ─────────────────────────────────────────────
+  const getSuggestions = async () => {
+    const missing = recipe?.ingredients.filter((_, i) => !checked[i]) ?? [];
+    if (missing.length === 0) {return;}
+    setSubLoading(true);
+    setSubSuggestions('');
     try {
-      const context = recipe
-        ? `We're cooking "${recipe.title}". Current step: ${steps[currentStep]?.instruction ?? 'getting started'}.`
-        : '';
-      const reply = await askGroq([
-        {role: 'system', content: `You are Rémy, a warm AI chef assistant. ${context} Answer questions helpfully and concisely.`},
-        {role: 'user', content: userMsg},
-      ]);
-      setChatMessages(m => [...m, {role: 'remy', text: reply}]);
+      const text = await askGroq([{
+        role: 'system',
+        content: 'You are Rémy, a helpful AI chef. Be concise and practical.',
+      }, {
+        role: 'user',
+        content: `I am making "${recipe?.title}" but I am missing: ${missing.join(', ')}. For each missing ingredient, suggest a practical substitute I might already have at home. Format each as "• [missing] → [substitute]: [one line why it works]". Be brief.`,
+      }]);
+      setSubSuggestions(text);
+      speak(text, muted);
     } catch {
-      setChatMessages(m => [...m, {role: 'remy', text: 'Sorry, I had trouble answering that. Try again!'}]);
+      setSubSuggestions('Sorry, could not get suggestions. Please try again.');
     } finally {
-      setChatLoading(false);
+      setSubLoading(false);
     }
+  };
+
+  const toggleMute = () => {
+    if (!muted) {stopSpeaking();}
+    setMuted(m => !m);
   };
 
   // ── No recipe passed ─────────────────────────────────────────────────────
@@ -318,9 +335,11 @@ timerSeconds is optional — only include it if the step requires waiting (boili
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.phaseContent}>
 
-          <View style={styles.remyBadge}>
-            <View style={styles.remyDot} />
-            <Text style={styles.remyBadgeText}>Rémy</Text>
+          <View style={styles.topBar}>
+            <View style={{flex: 1}} />
+            <Pressable onPress={toggleMute} style={[styles.topBarBtn, muted && styles.topBarBtnMuted]}>
+              <Ion name={muted ? 'volume-mute' : 'volume-high'} size={18} color={muted ? palette.terracotta : palette.body} />
+            </Pressable>
           </View>
 
           <Text style={styles.recipeTitle}>{recipe.title}</Text>
@@ -363,6 +382,16 @@ timerSeconds is optional — only include it if the step requires waiting (boili
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.phaseContent}>
 
+          <View style={styles.topBar}>
+            <Pressable onPress={() => setPhase('intro')} style={styles.topBarBtn}>
+              <Ion name="arrow-back" size={18} color={palette.body} />
+            </Pressable>
+            <View style={{flex: 1}} />
+            <Pressable onPress={toggleMute} style={[styles.topBarBtn, muted && styles.topBarBtnMuted]}>
+              <Ion name={muted ? 'volume-mute' : 'volume-high'} size={18} color={muted ? palette.terracotta : palette.body} />
+            </Pressable>
+          </View>
+
           <Text style={styles.phaseLabel}>Before we start</Text>
           <Text style={styles.phaseTitle}>Ingredients</Text>
           <Text style={styles.phaseSub}>Tick off everything you have ready.</Text>
@@ -386,6 +415,32 @@ timerSeconds is optional — only include it if the step requires waiting (boili
               </Pressable>
             ))}
           </View>
+
+          {/* Substitution suggestion */}
+          {!allChecked && (
+            <Pressable
+              onPress={getSuggestions}
+              disabled={subLoading}
+              style={({pressed}) => [styles.subBtn, pressed && {opacity: 0.8}]}>
+              {subLoading ? (
+                <ActivityIndicator color={palette.terracotta} size="small" />
+              ) : (
+                <Text style={styles.subBtnText}>
+                  {subSuggestions ? 'Refresh suggestions' : 'Missing something? Ask Rémy'}
+                </Text>
+              )}
+            </Pressable>
+          )}
+
+          {subSuggestions !== '' && (
+            <View style={styles.subCard}>
+              <View style={styles.subCardHeader}>
+                <View style={styles.remyDot} />
+                <Text style={styles.subCardTitle}>Rémy's Suggestions</Text>
+              </View>
+              <Text style={styles.subCardText}>{subSuggestions}</Text>
+            </View>
+          )}
 
           <Pressable
             onPress={startCooking}
@@ -419,10 +474,24 @@ timerSeconds is optional — only include it if the step requires waiting (boili
 
           <ScrollView contentContainerStyle={styles.phaseContent} ref={scrollRef}>
 
+            <View style={styles.topBar}>
+              <Pressable onPress={() => setPhase('checklist')} style={styles.topBarBtn}>
+                <Ion name="arrow-back" size={18} color={palette.body} />
+              </Pressable>
+              <Text style={styles.topBarTitle} numberOfLines={1}>{recipe.title}</Text>
+              <Pressable onPress={toggleMute} style={[styles.topBarBtn, muted && styles.topBarBtnMuted]}>
+                <Ion name={muted ? 'volume-mute' : 'volume-high'} size={18} color={muted ? palette.terracotta : palette.body} />
+              </Pressable>
+            </View>
             <Text style={styles.stepCounter}>
               Step {currentStep + 1} of {steps.length}
             </Text>
-            <Text style={styles.recipeTitle}>{recipe.title}</Text>
+            <Pressable
+              onPress={() => step && speak(step.instruction, muted)}
+              style={({pressed}) => [styles.replayBtn, pressed && {opacity: 0.7}]}>
+              <Ion name="refresh" size={13} color={palette.terracotta} />
+              <Text style={styles.replayBtnText}>Replay step</Text>
+            </Pressable>
 
             {stepsLoading ? (
               <View style={styles.loadingRow}>
@@ -466,77 +535,31 @@ timerSeconds is optional — only include it if the step requires waiting (boili
           <Text style={styles.fabText}>Ask Rémy</Text>
         </Pressable>
 
-        {/* Chat Modal */}
-        <Modal visible={chatOpen} animationType="slide" transparent statusBarTranslucent>
-          <KeyboardAvoidingView
-            style={styles.chatBackdrop}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <Pressable style={styles.chatDismiss} onPress={() => setChatOpen(false)} />
-            <View style={styles.chatSheet}>
-
-              <View style={styles.chatHeader}>
-                <View style={styles.chatHandle} />
-                <Text style={styles.chatTitle}>Ask Rémy</Text>
-                <Text style={styles.chatSub}>Your AI chef is here to help</Text>
-              </View>
-
-              <ScrollView
-                style={styles.chatMessages}
-                contentContainerStyle={styles.chatMessagesContent}
-                showsVerticalScrollIndicator={false}>
-                {chatMessages.length === 0 && (
-                  <Text style={styles.chatEmpty}>
-                    Ask me anything about this recipe — substitutions, techniques, timing...
-                  </Text>
-                )}
-                {chatMessages.map((msg, i) => (
-                  <View key={i} style={[styles.chatBubble, msg.role === 'user' ? styles.chatBubbleUser : styles.chatBubbleRemy]}>
-                    {msg.role === 'remy' && (
-                      <View style={styles.remyBubbleDot} />
-                    )}
-                    <Text style={[styles.chatBubbleText, msg.role === 'user' && styles.chatBubbleTextUser]}>
-                      {msg.text}
-                    </Text>
-                  </View>
-                ))}
-                {chatLoading && (
-                  <View style={styles.chatBubble}>
-                    <ActivityIndicator color={palette.terracotta} size="small" />
-                  </View>
-                )}
-              </ScrollView>
-
-              <View style={styles.chatInputRow}>
-                <TextInput
-                  style={styles.chatInput}
-                  placeholder="Ask something..."
-                  placeholderTextColor={palette.muted}
-                  value={chatInput}
-                  onChangeText={setChatInput}
-                  onSubmitEditing={sendChat}
-                  returnKeyType="send"
-                  multiline
-                />
-                <Pressable
-                  onPress={sendChat}
-                  disabled={!chatInput.trim()}
-                  style={({pressed}) => [styles.chatSendBtn, pressed && styles.chatSendBtnPressed, !chatInput.trim() && styles.chatSendBtnDisabled]}>
-                  <View style={styles.sendArrow} />
-                </Pressable>
-              </View>
-
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
+        <AskRemy
+          visible={chatOpen}
+          onClose={() => setChatOpen(false)}
+          recipeTitle={recipe?.title}
+          currentStepInstruction={steps[currentStep]?.instruction}
+        />
 
       </KeyboardAvoidingView>
     );
   }
 
-  // Speak done when phase changes to done
+  // Speak done + save cook history when phase changes to done
   useEffect(() => {
     if (phase === 'done' && recipe) {
       speak(`Bon appétit! You've finished cooking ${recipe.title}. Enjoy your meal!`, muted);
+      // Save to cook history
+      const user = auth().currentUser;
+      if (user) {
+        addCookHistory({
+          uid: user.uid,
+          recipeTitle: recipe.title,
+          cuisine: recipe.cuisine,
+          duration: recipe.duration,
+        }).catch(e => console.warn('Failed to save cook history:', e));
+      }
     }
   }, [phase]);
 
@@ -544,6 +567,13 @@ timerSeconds is optional — only include it if the step requires waiting (boili
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.doneContent}>
+
+        <View style={styles.topBar}>
+          <View style={{flex: 1}} />
+          <Pressable onPress={toggleMute} style={[styles.topBarBtn, muted && styles.topBarBtnMuted]}>
+            <Ion name={muted ? 'volume-mute' : 'volume-high'} size={18} color={muted ? palette.terracotta : palette.body} />
+          </Pressable>
+        </View>
 
         <View style={styles.doneCheck}>
           <View style={styles.doneCheckInner} />
@@ -566,7 +596,6 @@ timerSeconds is optional — only include it if the step requires waiting (boili
             setPhase('intro');
             setCurrentStep(0);
             setSteps([]);
-            setChatMessages([]);
           }}
           style={({pressed}) => [styles.primaryBtn, {marginTop: spacing.xxl}, pressed && styles.primaryBtnPressed]}>
           <Text style={styles.primaryBtnText}>Cook Again</Text>
@@ -879,146 +908,103 @@ const styles = StyleSheet.create({
     color: palette.white,
   },
 
-  // Chat modal
-  chatBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  chatDismiss: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  chatSheet: {
-    backgroundColor: palette.bg,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '75%',
-    paddingBottom: spacing.xxl,
-  },
-  chatHeader: {
-    alignItems: 'center',
-    paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.border,
-  },
-  chatHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: palette.border,
-    marginBottom: spacing.md,
-  },
-  chatTitle: {
-    fontFamily: typography.serif,
-    fontSize: 18,
-    color: palette.ink,
-    marginBottom: 2,
-  },
-  chatSub: {
-    fontFamily: typography.cormorantItalic,
-    fontSize: 13,
-    color: palette.muted,
-  },
-  chatMessages: {
-    flex: 1,
-  },
-  chatMessagesContent: {
-    padding: spacing.xl,
-    gap: spacing.md,
-  },
-  chatEmpty: {
-    fontFamily: typography.cormorantItalic,
-    fontSize: 14,
-    color: palette.muted,
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingVertical: spacing.xl,
-  },
-  chatBubble: {
+
+
+  // Substitution
+  subBtn: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    maxWidth: '85%',
-  },
-  chatBubbleRemy: {
-    alignSelf: 'flex-start',
-  },
-  chatBubbleUser: {
-    alignSelf: 'flex-end',
-    flexDirection: 'row-reverse',
-  },
-  remyBubbleDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: palette.terracotta,
-    marginTop: 6,
-    flexShrink: 0,
-  },
-  chatBubbleText: {
-    fontFamily: typography.cormorant,
-    fontSize: 15,
-    color: palette.ink,
-    lineHeight: 22,
-    backgroundColor: palette.white,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 12,
-    padding: spacing.md,
-    flex: 1,
-  },
-  chatBubbleTextUser: {
-    backgroundColor: palette.terracotta,
-    borderColor: palette.terracotta,
-    color: palette.white,
-  },
-  chatInputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: palette.border,
-  },
-  chatInput: {
-    flex: 1,
-    backgroundColor: palette.white,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 12,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    fontFamily: typography.cormorant,
-    fontSize: 15,
-    color: palette.ink,
-    maxHeight: 100,
-  },
-  chatSendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: palette.terracotta,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: 'rgba(200,82,42,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(200,82,42,0.2)',
+    borderRadius: 14,
+    paddingVertical: spacing.lg,
+    marginBottom: spacing.md,
   },
-  chatSendBtnPressed: {
-    opacity: 0.85,
+  subBtnText: {
+    fontFamily: typography.cormorantItalic,
+    fontSize: 15,
+    color: palette.terracotta,
+    letterSpacing: 0.3,
   },
-  chatSendBtnDisabled: {
+  subCard: {
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  subCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  subCardTitle: {
+    fontFamily: typography.cormorant,
+    fontSize: 12,
+    color: palette.terracotta,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  subCardText: {
+    fontFamily: typography.cormorant,
+    fontSize: 15,
+    color: palette.body,
+    lineHeight: 24,
+  },
+
+  // Top bar
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    minHeight: 38,
+  },
+  topBarBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  sendArrow: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 7,
-    borderBottomWidth: 5,
-    borderTopWidth: 5,
-    borderLeftColor: palette.white,
-    borderBottomColor: 'transparent',
-    borderTopColor: 'transparent',
-    marginLeft: 3,
+  topBarBtnMuted: {
+    backgroundColor: 'rgba(200,82,42,0.08)',
+    borderColor: palette.terracotta,
+  },
+  topBarTitle: {
+    flex: 1,
+    fontFamily: typography.serif,
+    fontSize: 15,
+    color: palette.ink,
+    textAlign: 'center',
+    marginHorizontal: spacing.sm,
+  },
+  replayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    marginBottom: spacing.sm,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    backgroundColor: 'rgba(200,82,42,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(200,82,42,0.2)',
+  },
+  replayBtnText: {
+    fontFamily: typography.cormorant,
+    fontSize: 12,
+    color: palette.terracotta,
+    letterSpacing: 0.5,
   },
 
   // TTS controls

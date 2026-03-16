@@ -37,6 +37,7 @@ export function AlertDialog({
       statusBarTranslucent>
       <View style={styles.backdrop}>
         <View style={styles.card}>
+
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
 
@@ -59,6 +60,7 @@ export function AlertDialog({
               </Text>
             </Pressable>
           </View>
+
         </View>
       </View>
     </Modal>
@@ -68,18 +70,20 @@ export function AlertDialog({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(44,26,14,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xxl,
   },
   card: {
     width: '100%',
-    backgroundColor: palette.parchment,
+    backgroundColor: palette.bg,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: spacing.xxl,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
+    shadowColor: palette.ink,
+    shadowOpacity: 0.12,
     shadowRadius: 24,
     shadowOffset: {width: 0, height: 8},
     elevation: 12,
@@ -87,13 +91,13 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: typography.serif,
     fontSize: 22,
-    color: palette.mahogany,
-    marginBottom: spacing.md,
+    color: palette.ink,
+    marginBottom: spacing.sm,
   },
   message: {
-    fontFamily: typography.cormorant,
+    fontFamily: typography.cormorantItalic,
     fontSize: 15,
-    color: palette.fog,
+    color: palette.body,
     lineHeight: 22,
     marginBottom: spacing.xxl,
   },
@@ -113,29 +117,33 @@ const styles = StyleSheet.create({
     transform: [{scale: 0.98}],
   },
   cancelBtn: {
-    backgroundColor: 'rgba(42,21,4,0.08)',
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   confirmBtn: {
-    backgroundColor: 'rgba(200,144,64,0.15)',
+    backgroundColor: palette.terracotta,
   },
   destructiveBtn: {
-    backgroundColor: 'rgba(139,26,42,0.1)',
+    backgroundColor: 'rgba(200,82,42,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(200,82,42,0.3)',
   },
   cancelLabel: {
     fontFamily: typography.cormorant,
     fontSize: 15,
     fontWeight: '600',
-    color: palette.mahogany,
+    color: palette.body,
     letterSpacing: 0.3,
   },
   confirmLabel: {
     fontFamily: typography.cormorant,
     fontSize: 15,
     fontWeight: '600',
-    color: palette.gold,
+    color: palette.white,
     letterSpacing: 0.3,
   },
   destructiveLabel: {
-    color: palette.burgundy,
+    color: palette.terracotta,
   },
 });

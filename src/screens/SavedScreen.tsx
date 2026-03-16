@@ -1,12 +1,14 @@
 import React, {useEffect, useState} from 'react';
 import {
   ActivityIndicator,
+  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {AlertDialog} from '../components/AlertDialog';
 import auth from '@react-native-firebase/auth';
 import {palette, spacing, typography} from '../tokens';
 import {
@@ -14,6 +16,8 @@ import {
   subscribeSavedRecipes,
   unsaveRecipe,
 } from '../services/recipeService';
+
+const FALLBACK = require('../../assets/images/login-bg.png');
 
 function RecipeRow({
   recipe,
@@ -25,21 +29,43 @@ function RecipeRow({
   onCook: () => void;
 }) {
   return (
-    <View style={styles.recipeRow}>
-      <Pressable style={styles.recipeInfo} onPress={onCook}>
-        <Text style={styles.recipeCuisine}>{recipe.cuisine}</Text>
-        <Text style={styles.recipeTitle}>{recipe.title}</Text>
-        <View style={styles.recipeMeta}>
-          <Text style={styles.recipeMetaItem}>{recipe.duration}</Text>
-          <View style={styles.metaDot} />
-          <Text style={styles.recipeMetaItem}>{recipe.difficulty}</Text>
-          <View style={styles.metaDot} />
-          <Text style={styles.recipeMetaItem}>{recipe.servings} servings</Text>
+    <View style={styles.card}>
+      <Pressable onPress={onCook} style={styles.cardMain}>
+        <ImageBackground
+          source={recipe.imageUri ? {uri: recipe.imageUri} : FALLBACK}
+          style={styles.cardImg}
+          imageStyle={styles.cardImgStyle}>
+          <View style={styles.cardImgOverlay} />
+          <View style={styles.cardBadge}>
+            <Text style={styles.cardBadgeText}>{recipe.duration}</Text>
+          </View>
+        </ImageBackground>
+        <View style={styles.cardBody}>
+          <Text style={styles.cardCuisine}>{recipe.cuisine}</Text>
+          <Text style={styles.cardTitle}>{recipe.title}</Text>
+          <View style={styles.cardMeta}>
+            <Text style={styles.cardMetaItem}>{recipe.servings} servings</Text>
+            <View style={styles.metaDot} />
+            <Text style={styles.cardMetaItem}>{recipe.difficulty}</Text>
+          </View>
         </View>
       </Pressable>
-      <Pressable onPress={onUnsave} style={styles.unsaveBtn}>
-        <View style={styles.unsaveIcon} />
-      </Pressable>
+
+      {/* Action row */}
+      <View style={styles.cardActions}>
+        <Pressable
+          onPress={onCook}
+          style={({pressed}) => [styles.cookBtn, pressed && styles.cookBtnPressed]}>
+          <Text style={styles.cookBtnText}>Cook with Rémy</Text>
+        </Pressable>
+        <Pressable
+          onPress={onUnsave}
+          style={({pressed}) => [styles.unsaveBtn, pressed && styles.unsaveBtnPressed]}>
+          {/* X icon */}
+          <View style={styles.xLeft} />
+          <View style={styles.xRight} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -48,9 +74,11 @@ export function SavedScreen({navigation}: any) {
   const user = auth().currentUser;
   const [recipes, setRecipes] = useState<SavedRecipe[]>([]);
   const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
+  const [dialogRecipe, setDialogRecipe] = useState<SavedRecipe | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {return;}
     const unsubscribe = subscribeSavedRecipes(user.uid, data => {
       setRecipes(data);
       setLoading(false);
@@ -58,14 +86,31 @@ export function SavedScreen({navigation}: any) {
     return unsubscribe;
   }, []);
 
-  const handleUnsave = async (recipe: SavedRecipe) => {
-    if (!user || !recipe.id) return;
-    await unsaveRecipe(user.uid, recipe.id);
+  const handleUnsave = (recipe: SavedRecipe) => {
+    if (!user || !recipe.id) {return;}
+    setDialogRecipe(recipe);
+  };
+
+  const confirmUnsave = async () => {
+    if (!user || !dialogRecipe?.id) {return;}
+    const recipe = dialogRecipe;
+    setDialogRecipe(null);
+    setRemoving(prev => new Set([...prev, recipe.id!]));
+    const result = await unsaveRecipe(user.uid, recipe.id!);
+    if (!result.success) {
+      setRemoving(prev => {
+        const next = new Set(prev);
+        next.delete(recipe.id!);
+        return next;
+      });
+    }
   };
 
   const handleCook = (recipe: SavedRecipe) => {
     navigation.navigate('cook', {recipe});
   };
+
+  const visibleRecipes = recipes.filter(r => !removing.has(r.id ?? ''));
 
   return (
     <View style={styles.container}>
@@ -80,7 +125,7 @@ export function SavedScreen({navigation}: any) {
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={palette.terracotta} />
           </View>
-        ) : recipes.length === 0 ? (
+        ) : visibleRecipes.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyTitle}>Nothing saved yet</Text>
             <Text style={styles.emptySub}>
@@ -89,7 +134,7 @@ export function SavedScreen({navigation}: any) {
           </View>
         ) : (
           <View style={styles.list}>
-            {recipes.map(recipe => (
+            {visibleRecipes.map(recipe => (
               <RecipeRow
                 key={recipe.id}
                 recipe={recipe}
@@ -101,15 +146,24 @@ export function SavedScreen({navigation}: any) {
         )}
 
       </ScrollView>
+
+      <AlertDialog
+        visible={dialogRecipe !== null}
+        title="Remove Recipe"
+        message={`Remove "${dialogRecipe?.title ?? ''}" from your saved recipes?`}
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={confirmUnsave}
+        onCancel={() => setDialogRecipe(null)}
+      />
+
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: palette.bg,
-  },
+  container: {flex: 1, backgroundColor: palette.bg},
   content: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xxl,
@@ -127,14 +181,8 @@ const styles = StyleSheet.create({
     color: palette.muted,
     marginBottom: spacing.xl,
   },
-  loadingWrap: {
-    paddingVertical: spacing.xxxl,
-    alignItems: 'center',
-  },
-  emptyWrap: {
-    paddingVertical: spacing.xxxl,
-    alignItems: 'center',
-  },
+  loadingWrap: {paddingVertical: spacing.xxxl, alignItems: 'center'},
+  emptyWrap: {paddingVertical: spacing.xxxl, alignItems: 'center'},
   emptyTitle: {
     fontFamily: typography.serif,
     fontSize: 22,
@@ -149,23 +197,39 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     maxWidth: 260,
   },
-  list: {
-    gap: spacing.md,
-  },
-  recipeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  list: {gap: spacing.lg},
+
+  // Card
+  card: {
     backgroundColor: palette.white,
     borderWidth: 1,
     borderColor: palette.border,
-    borderRadius: 14,
-    padding: spacing.lg,
-    gap: spacing.md,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  recipeInfo: {
-    flex: 1,
+  cardMain: {},
+  cardImg: {height: 130, justifyContent: 'flex-end'},
+  cardImgStyle: {opacity: 0.9},
+  cardImgOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10,5,2,0.2)',
   },
-  recipeCuisine: {
+  cardBadge: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    backgroundColor: palette.terracotta,
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  cardBadgeText: {
+    fontFamily: typography.cormorant,
+    fontSize: 11,
+    color: palette.white,
+  },
+  cardBody: {padding: spacing.lg, paddingBottom: spacing.sm},
+  cardCuisine: {
     fontFamily: typography.cormorant,
     fontSize: 10,
     color: palette.terracotta,
@@ -173,45 +237,69 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 3,
   },
-  recipeTitle: {
+  cardTitle: {
     fontFamily: typography.serif,
-    fontSize: 17,
+    fontSize: 18,
     color: palette.ink,
     marginBottom: spacing.sm,
-    lineHeight: 22,
   },
-  recipeMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  recipeMetaItem: {
+  cardMeta: {flexDirection: 'row', alignItems: 'center', gap: spacing.sm},
+  cardMetaItem: {
     fontFamily: typography.cormorant,
     fontSize: 12,
     color: palette.muted,
   },
   metaDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: palette.muted,
-    opacity: 0.5,
+    width: 3, height: 3, borderRadius: 1.5,
+    backgroundColor: palette.muted, opacity: 0.5,
+  },
+
+  // Action row
+  cardActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  cookBtn: {
+    flex: 1,
+    backgroundColor: palette.terracotta,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cookBtnPressed: {opacity: 0.85},
+  cookBtnText: {
+    fontFamily: typography.cormorant,
+    fontSize: 14,
+    letterSpacing: 1,
+    color: palette.white,
   },
   unsaveBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(200,82,42,0.08)',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
   },
-  unsaveIcon: {
-    width: 12,
-    height: 12,
-    borderTopWidth: 1.5,
-    borderRightWidth: 1.5,
-    borderColor: palette.terracotta,
-    transform: [{rotate: '45deg'}, {translateY: 3}],
+  unsaveBtnPressed: {opacity: 0.7},
+  xLeft: {
+    position: 'absolute',
+    width: 14,
+    height: 1.5,
+    backgroundColor: palette.muted,
+    borderRadius: 1,
+    transform: [{rotate: '45deg'}],
+  },
+  xRight: {
+    position: 'absolute',
+    width: 14,
+    height: 1.5,
+    backgroundColor: palette.muted,
+    borderRadius: 1,
+    transform: [{rotate: '-45deg'}],
   },
 });

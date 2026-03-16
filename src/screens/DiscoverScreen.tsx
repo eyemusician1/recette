@@ -1,4 +1,8 @@
 import React, {useState, useEffect, useRef} from 'react';
+import {ENV} from '../env';
+
+const UNSPLASH_KEY = ENV.UNSPLASH_ACCESS_KEY;
+const GROQ_KEY = ENV.GROQ_API_KEY;
 import {
   ActivityIndicator,
   ImageBackground,
@@ -12,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import {palette, spacing, typography} from '../tokens';
+import Ion from 'react-native-vector-icons/Ionicons';
 import auth from '@react-native-firebase/auth';
 import {saveRecipe} from '../services/recipeService';
 
@@ -30,12 +35,12 @@ type Recipe = {
 };
 
 // ─── Recipe Card ──────────────────────────────────────────────────────────────
-const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY ?? '';
+
 
 async function fetchFoodImage(query: string): Promise<string | null> {
   try {
     const res = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + ' food')}&per_page=1&orientation=landscape`,
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + " food")}&per_page=1&orientation=landscape`,
       {headers: {Authorization: `Client-ID ${UNSPLASH_KEY}`}},
     );
     const data = await res.json();
@@ -45,7 +50,7 @@ async function fetchFoodImage(query: string): Promise<string | null> {
   }
 }
 
-function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r: Recipe) => void; onSave: (r: Recipe) => void; saved: boolean}) {
+function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r: Recipe) => void; onSave: (r: Recipe, imageUri?: string) => void; saved: boolean}) {
   const [expanded, setExpanded] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
 
@@ -102,11 +107,13 @@ function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r
             <Text style={styles.cookBtnText}>Cook with Rémy</Text>
           </Pressable>
           <Pressable
-            onPress={() => onSave(recipe)}
+            onPress={() => !saved && onSave(recipe, imageUri ?? undefined)}
             style={({pressed}) => [styles.saveBtn, saved && styles.saveBtnActive, pressed && styles.saveBtnPressed]}>
-            <Text style={[styles.saveBtnText, saved && styles.saveBtnTextActive]}>
-              {saved ? 'Saved' : 'Save'}
-            </Text>
+            <Ion
+              name={saved ? 'bookmark' : 'bookmark-outline'}
+              size={20}
+              color={saved ? palette.white : palette.muted}
+            />
           </Pressable>
         </View>
       </View>
@@ -135,7 +142,7 @@ export function DiscoverScreen({navigation}: any) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY ?? ''}`,
+          'Authorization': `Bearer ${GROQ_KEY}`,
         },
         body: JSON.stringify({
           model: 'llama-3.3-70b-versatile',
@@ -167,7 +174,7 @@ export function DiscoverScreen({navigation}: any) {
     navigation.navigate('cook', {recipe});
   };
 
-  const handleSave = async (recipe: Recipe) => {
+  const handleSave = async (recipe: Recipe, imageUri?: string) => {
     const user = auth().currentUser;
     if (!user) {return;}
     if (savedIds.has(recipe.id)) {return;}
@@ -180,9 +187,12 @@ export function DiscoverScreen({navigation}: any) {
       difficulty: recipe.difficulty,
       ingredients: recipe.ingredients,
       summary: recipe.summary,
+      imageUri: imageUri ?? '',
     });
     if (result.success) {
       setSavedIds(prev => new Set([...prev, recipe.id]));
+    } else {
+      console.warn('Save failed:', result.error);
     }
   };
 
@@ -616,29 +626,8 @@ const styles = StyleSheet.create({
     borderColor: palette.terracotta,
   },
   saveBtnPressed: {
-    opacity: 0.8,
+    opacity: 0.75,
+    transform: [{scale: 0.95}],
   },
-  saveIcon: {
-    width: 13,
-    height: 16,
-    borderWidth: 2,
-    borderColor: palette.muted,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-  },
-  saveIconActive: {
-    borderColor: palette.white,
-    backgroundColor: 'transparent',
-  },
-  saveBtnText: {
-    fontFamily: typography.cormorant,
-    fontSize: 14,
-    letterSpacing: 0.8,
-    color: palette.muted,
-    fontWeight: '600',
-  },
-  saveBtnTextActive: {
-    color: palette.white,
-  },
+
 });
