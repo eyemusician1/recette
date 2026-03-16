@@ -13,7 +13,7 @@ import auth from '@react-native-firebase/auth';
 import Ion from 'react-native-vector-icons/Ionicons';
 import {palette, spacing, typography} from '../tokens';
 import {AlertDialog} from '../components/AlertDialog';
-import {signOut, updateDietaryPreferences, getUserProfile} from '../services/authService';
+import {signOut, updateDietaryPreferences, getUserProfile, resetDiscoverWelcome} from '../services/authService';
 import {getSavedRecipes, getCookHistory} from '../services/recipeService';
 
 // ─── Available dietary options ────────────────────────────────────────────────
@@ -130,7 +130,7 @@ function DietaryModal({
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-export function ProfileScreen() {
+export function ProfileScreen({navigation}: any) {
   const user = auth().currentUser;
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
@@ -193,6 +193,16 @@ export function ProfileScreen() {
   const handleSignOut = async () => {
     setShowSignOutDialog(false);
     await signOut();
+  };
+
+  const handleShowTipsAgain = async () => {
+    if (!user) {return;}
+    try {
+      await resetDiscoverWelcome(user.uid);
+      navigation.navigate('home');
+    } catch (e) {
+      console.warn('Failed to reset onboarding tips', e);
+    }
   };
 
   return (
@@ -267,6 +277,8 @@ export function ProfileScreen() {
       <Text style={styles.groupLabel}>Preferences</Text>
       <View style={styles.group}>
         <RowItem label="Language" value="English" onPress={() => {}} />
+        <View style={styles.divider} />
+        <RowItem label="Show App Tips Again" onPress={handleShowTipsAgain} />
       </View>
 
       {/* ── About ── */}
@@ -417,18 +429,18 @@ const styles = StyleSheet.create({
   },
   avatarInitials: {
     fontFamily: typography.serif,
-    fontSize: 32,
+    fontSize: 36,
     color: palette.white,
   },
   userName: {
     fontFamily: typography.serif,
-    fontSize: 24,
+    fontSize: 27,
     color: palette.ink,
     marginBottom: 3,
   },
   userEmail: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
     marginBottom: spacing.xl,
   },
@@ -447,13 +459,13 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontFamily: typography.serif,
-    fontSize: 26,
+    fontSize: 30,
     color: palette.ink,
     marginBottom: 2,
   },
   statLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
@@ -467,7 +479,7 @@ const styles = StyleSheet.create({
   // Groups
   groupLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -493,7 +505,7 @@ const styles = StyleSheet.create({
   rowPressed: {backgroundColor: palette.surface},
   rowLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.ink,
   },
   rowLabelDanger: {color: palette.terracotta},
@@ -504,7 +516,7 @@ const styles = StyleSheet.create({
   },
   rowValue: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
   },
   divider: {
@@ -532,7 +544,7 @@ const styles = StyleSheet.create({
   },
   dietaryEmptyText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
   },
   chipsWrap: {
@@ -551,7 +563,7 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontFamily: typography.cormorant,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.terracotta,
   },
   chipAdd: {
@@ -568,7 +580,7 @@ const styles = StyleSheet.create({
   // About / Privacy
   aboutLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -576,13 +588,13 @@ const styles = StyleSheet.create({
   },
   aboutValue: {
     fontFamily: typography.serif,
-    fontSize: 17,
+    fontSize: 20,
     color: palette.ink,
     marginBottom: spacing.sm,
   },
   aboutBody: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.body,
     lineHeight: 24,
     marginBottom: spacing.sm,
@@ -623,13 +635,13 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontFamily: typography.serif,
-    fontSize: 20,
+    fontSize: 23,
     color: palette.ink,
     marginBottom: 3,
   },
   modalSub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.muted,
   },
   modalOptions: {
@@ -656,7 +668,7 @@ const styles = StyleSheet.create({
   optionChipPressed: {opacity: 0.75},
   optionText: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.body,
   },
   optionTextActive: {
@@ -681,7 +693,7 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.body,
   },
   modalSaveBtn: {
@@ -693,7 +705,7 @@ const styles = StyleSheet.create({
   },
   modalSaveText: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.white,
     letterSpacing: 0.5,
   },

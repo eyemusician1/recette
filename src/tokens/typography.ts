@@ -6,11 +6,11 @@ export const typography = {
   fallback: 'Georgia',
 
   size: {
-    xs: 12,
-    sm: 13,
-    md: 15,
-    lg: 16,
-    xl: 20,
+    xs: 14,
+    sm: 15,
+    md: 17,
+    lg: 19,
+    xl: 24,
     wordmark: 80,
   },
 

@@ -75,6 +75,7 @@ export async function upsertUserProfile(user: any) {
       email: user.email ?? '',
       photoURL: user.photoURL ?? '',
       dietaryPreferences: [],
+      hasSeenDiscoverWelcome: false,
       createdAt: firestore.FieldValue.serverTimestamp(),
       updatedAt: firestore.FieldValue.serverTimestamp(),
     });
@@ -90,12 +91,33 @@ export async function upsertUserProfile(user: any) {
 
 export async function getUserProfile(uid: string) {
   const snap = await firestore().collection('users').doc(uid).get();
-  return snap.exists() ? snap.data() : null;
+  const exists =
+    typeof (snap as any).exists === 'function'
+      ? (snap as any).exists()
+      : Boolean((snap as any).exists);
+  return exists ? snap.data() : null;
 }
 
 export async function updateDietaryPreferences(uid: string, prefs: string[]) {
-  await firestore().collection('users').doc(uid).update({
+  await firestore().collection('users').doc(uid).set({
+    uid,
     dietaryPreferences: prefs,
     updatedAt: firestore.FieldValue.serverTimestamp(),
-  });
+  }, {merge: true});
+}
+
+export async function markDiscoverWelcomeSeen(uid: string) {
+  await firestore().collection('users').doc(uid).set({
+    uid,
+    hasSeenDiscoverWelcome: true,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+
+export async function resetDiscoverWelcome(uid: string) {
+  await firestore().collection('users').doc(uid).set({
+    uid,
+    hasSeenDiscoverWelcome: false,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
 }

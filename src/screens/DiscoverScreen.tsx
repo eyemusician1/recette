@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef} from 'react';
+import React, {useCallback, useEffect, useState, useRef} from 'react';
 import {ENV} from '../env';
 
 const UNSPLASH_KEY = ENV.UNSPLASH_ACCESS_KEY;
@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ImageBackground,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -18,7 +19,9 @@ import {
 import {palette, spacing, typography} from '../tokens';
 import Ion from 'react-native-vector-icons/Ionicons';
 import auth from '@react-native-firebase/auth';
+import {getUserProfile, markDiscoverWelcomeSeen} from '../services/authService';
 import {saveRecipe} from '../services/recipeService';
+import {useFocusEffect} from '@react-navigation/native';
 
 const HERO_IMAGE = require('../../assets/images/login-bg.jpg');
 
@@ -104,7 +107,7 @@ function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r
           <Pressable
             onPress={() => onCook(recipe)}
             style={({pressed}) => [styles.cookBtn, pressed && styles.cookBtnPressed]}>
-            <Text style={styles.cookBtnText}>Cook with Rémy</Text>
+            <Text style={styles.cookBtnText}>Start Cooking</Text>
           </Pressable>
           <Pressable
             onPress={() => !saved && onSave(recipe, imageUri ?? undefined)}
@@ -129,7 +132,39 @@ export function DiscoverScreen({navigation}: any) {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [showWelcome, setShowWelcome] = useState(false);
   const inputRef = useRef<TextInput>(null);
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+
+    const checkWelcomeState = async () => {
+      const user = auth().currentUser;
+      if (!user) {
+        return;
+      }
+
+      try {
+        const profile = await getUserProfile(user.uid);
+        if (!active) {
+          return;
+        }
+
+        // Only true for users created after this onboarding was introduced.
+        if (profile?.hasSeenDiscoverWelcome === false) {
+          setShowWelcome(true);
+          await markDiscoverWelcomeSeen(user.uid);
+        }
+      } catch (e) {
+        console.warn('Welcome onboarding check failed:', e);
+      }
+    };
+
+    checkWelcomeState();
+    return () => {
+      active = false;
+    };
+  }, []));
 
   const searchRecipes = async () => {
     if (!query.trim()) return;
@@ -200,6 +235,41 @@ export function DiscoverScreen({navigation}: any) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={showWelcome}
+        onRequestClose={() => setShowWelcome(false)}>
+        <View style={styles.welcomeBackdrop}>
+          <View style={styles.welcomeCard}>
+            <Text style={styles.welcomeKicker}>Welcome to Recette</Text>
+            <Text style={styles.welcomeTitle}>Meet Remy, your cooking guide</Text>
+            <Text style={styles.welcomeBody}>
+              Remy helps you cook step by step so you never feel lost in the kitchen.
+            </Text>
+
+            <View style={styles.welcomeTipRow}>
+              <View style={styles.welcomeDot} />
+              <Text style={styles.welcomeTipText}>Search a dish on this page.</Text>
+            </View>
+            <View style={styles.welcomeTipRow}>
+              <View style={styles.welcomeDot} />
+              <Text style={styles.welcomeTipText}>Tap Start Cooking to open guided steps.</Text>
+            </View>
+            <View style={styles.welcomeTipRow}>
+              <View style={styles.welcomeDot} />
+              <Text style={styles.welcomeTipText}>Use Ask Remy anytime if you need help.</Text>
+            </View>
+
+            <Pressable
+              onPress={() => setShowWelcome(false)}
+              style={({pressed}) => [styles.welcomeButton, pressed && styles.welcomeButtonPressed]}>
+              <Text style={styles.welcomeButtonText}>Got it</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <ScrollView
         keyboardShouldPersistTaps="handled"
@@ -292,7 +362,7 @@ export function DiscoverScreen({navigation}: any) {
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateTitle}>Search to get started</Text>
               <Text style={styles.emptyStateSub}>
-                Try "pasta lemon", "chicken soup",{'\n'}or "easy desserts"
+                Try "adobo", "chicken soup",{'\n'}or "easy desserts"
               </Text>
             </View>
           )}
@@ -328,7 +398,7 @@ const styles = StyleSheet.create({
   },
   heroGreeting: {
     fontFamily: typography.serif,
-    fontSize: 30,
+    fontSize: 34,
     color: palette.white,
     marginBottom: 4,
     textShadowColor: 'rgba(0,0,0,0.4)',
@@ -337,7 +407,7 @@ const styles = StyleSheet.create({
   },
   heroSub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 15,
+    fontSize: 18,
     color: 'rgba(255,255,255,0.65)',
   },
 
@@ -388,7 +458,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.ink,
     padding: 0,
   },
@@ -425,7 +495,7 @@ const styles = StyleSheet.create({
   },
   searchSubmitText: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     letterSpacing: 1,
     color: palette.white,
   },
@@ -437,7 +507,7 @@ const styles = StyleSheet.create({
   },
   resultsLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -452,19 +522,19 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.muted,
   },
   errorText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.terracotta,
     textAlign: 'center',
     paddingVertical: spacing.xxl,
   },
   emptyText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
     textAlign: 'center',
     paddingVertical: spacing.xxl,
@@ -475,13 +545,13 @@ const styles = StyleSheet.create({
   },
   emptyStateTitle: {
     fontFamily: typography.serif,
-    fontSize: 20,
+    fontSize: 23,
     color: palette.ink,
     marginBottom: spacing.sm,
   },
   emptyStateSub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.muted,
     textAlign: 'center',
     lineHeight: 22,
@@ -522,7 +592,7 @@ const styles = StyleSheet.create({
   },
   rcardBadgeText: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.white,
     letterSpacing: 0.5,
   },
@@ -531,7 +601,7 @@ const styles = StyleSheet.create({
   },
   rcardCuisine: {
     fontFamily: typography.cormorant,
-    fontSize: 10,
+    fontSize: 14,
     color: palette.terracotta,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -539,7 +609,7 @@ const styles = StyleSheet.create({
   },
   rcardTitle: {
     fontFamily: typography.serif,
-    fontSize: 20,
+    fontSize: 23,
     color: palette.ink,
     marginBottom: spacing.sm,
     lineHeight: 24,
@@ -552,7 +622,7 @@ const styles = StyleSheet.create({
   },
   rcardMetaItem: {
     fontFamily: typography.cormorant,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.muted,
   },
   rcardMetaDot: {
@@ -569,14 +639,14 @@ const styles = StyleSheet.create({
   },
   rcardSummary: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.body,
     lineHeight: 20,
     marginBottom: spacing.md,
   },
   rcardIngredientsLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 10,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -584,7 +654,7 @@ const styles = StyleSheet.create({
   },
   rcardIngredients: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.body,
     lineHeight: 20,
     marginBottom: spacing.lg,
@@ -606,7 +676,7 @@ const styles = StyleSheet.create({
   },
   cookBtnText: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     letterSpacing: 1.2,
     color: palette.white,
   },
@@ -628,6 +698,86 @@ const styles = StyleSheet.create({
   saveBtnPressed: {
     opacity: 0.75,
     transform: [{scale: 0.95}],
+  },
+
+  // New-user onboarding modal
+  welcomeBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(14, 10, 8, 0.32)',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  welcomeCard: {
+    backgroundColor: 'rgba(255, 250, 244, 0.97)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 96, 67, 0.22)',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.xl,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 5,
+  },
+  welcomeKicker: {
+    fontFamily: typography.cormorant,
+    fontSize: 14,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    color: palette.terracotta,
+    marginBottom: spacing.xs,
+  },
+  welcomeTitle: {
+    fontFamily: typography.serif,
+    fontSize: 24,
+    color: palette.ink,
+    marginBottom: spacing.sm,
+  },
+  welcomeBody: {
+    fontFamily: typography.cormorant,
+    fontSize: 17,
+    color: palette.body,
+    lineHeight: 24,
+    marginBottom: spacing.lg,
+  },
+  welcomeTipRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  welcomeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 9,
+    backgroundColor: palette.terracotta,
+    opacity: 0.8,
+  },
+  welcomeTipText: {
+    flex: 1,
+    fontFamily: typography.cormorant,
+    fontSize: 16,
+    color: palette.body,
+    lineHeight: 22,
+  },
+  welcomeButton: {
+    marginTop: spacing.md,
+    alignSelf: 'flex-end',
+    backgroundColor: palette.terracotta,
+    borderRadius: 999,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
+  },
+  welcomeButtonPressed: {
+    opacity: 0.84,
+  },
+  welcomeButtonText: {
+    fontFamily: typography.cormorant,
+    fontSize: 16,
+    letterSpacing: 0.8,
+    color: palette.white,
   },
 
 });

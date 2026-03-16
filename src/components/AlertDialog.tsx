@@ -90,13 +90,13 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: typography.serif,
-    fontSize: 22,
+    fontSize: 25,
     color: palette.ink,
     marginBottom: spacing.sm,
   },
   message: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.body,
     lineHeight: 22,
     marginBottom: spacing.xxl,
@@ -131,14 +131,14 @@ const styles = StyleSheet.create({
   },
   cancelLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '600',
     color: palette.body,
     letterSpacing: 0.3,
   },
   confirmLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '600',
     color: palette.white,
     letterSpacing: 0.3,

@@ -1,5 +1,5 @@
 import React from 'react';
-import {StyleSheet} from 'react-native';
+import {Pressable, StyleSheet} from 'react-native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import Ion from 'react-native-vector-icons/Ionicons';
 import {DiscoverScreen} from '../screens/DiscoverScreen';
@@ -18,6 +18,10 @@ export function AppNavigator() {
         tabBarStyle: styles.tabBar,
         tabBarShowLabel: false,
         tabBarItemStyle: styles.tabItem,
+        tabBarButton: props => {
+          const pressableProps = props as any;
+          return <Pressable {...pressableProps} android_ripple={{color: 'transparent'}} />;
+        },
       }}>
 
       <Tab.Screen

@@ -56,7 +56,7 @@ function RecipeRow({
         <Pressable
           onPress={onCook}
           style={({pressed}) => [styles.cookBtn, pressed && styles.cookBtnPressed]}>
-          <Text style={styles.cookBtnText}>Cook with Rémy</Text>
+          <Text style={styles.cookBtnText}>Start Cooking</Text>
         </Pressable>
         <Pressable
           onPress={onUnsave}
@@ -171,13 +171,13 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontFamily: typography.serif,
-    fontSize: 30,
+    fontSize: 34,
     color: palette.ink,
     marginBottom: 4,
   },
   pageSub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
     marginBottom: spacing.xl,
   },
@@ -185,13 +185,13 @@ const styles = StyleSheet.create({
   emptyWrap: {paddingVertical: spacing.xxxl, alignItems: 'center'},
   emptyTitle: {
     fontFamily: typography.serif,
-    fontSize: 22,
+    fontSize: 25,
     color: palette.ink,
     marginBottom: spacing.sm,
   },
   emptySub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
     textAlign: 'center',
     lineHeight: 22,
@@ -225,13 +225,13 @@ const styles = StyleSheet.create({
   },
   cardBadgeText: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.white,
   },
   cardBody: {padding: spacing.lg, paddingBottom: spacing.sm},
   cardCuisine: {
     fontFamily: typography.cormorant,
-    fontSize: 10,
+    fontSize: 14,
     color: palette.terracotta,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -239,14 +239,14 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontFamily: typography.serif,
-    fontSize: 18,
+    fontSize: 21,
     color: palette.ink,
     marginBottom: spacing.sm,
   },
   cardMeta: {flexDirection: 'row', alignItems: 'center', gap: spacing.sm},
   cardMetaItem: {
     fontFamily: typography.cormorant,
-    fontSize: 12,
+    fontSize: 15,
     color: palette.muted,
   },
   metaDot: {
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   cookBtnPressed: {opacity: 0.85},
   cookBtnText: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     letterSpacing: 1,
     color: palette.white,
   },

@@ -158,7 +158,7 @@ const timerStyles = StyleSheet.create({
   time: {
     flex: 1,
     fontFamily: typography.serif,
-    fontSize: 20,
+    fontSize: 23,
     color: palette.terracotta,
   },
   btn: {
@@ -175,7 +175,7 @@ const timerStyles = StyleSheet.create({
   },
   btnText: {
     fontFamily: typography.cormorant,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.white,
     letterSpacing: 0.5,
   },
@@ -342,7 +342,15 @@ timerSeconds is optional — only include it if the step requires waiting (boili
         content: 'You are Rémy, a helpful AI chef. Be concise and practical.',
       }, {
         role: 'user',
-        content: `I am making "${recipe?.title}" but I am missing: ${missing.join(', ')}. For each missing ingredient, suggest a practical substitute I might already have at home. Format each as "• [missing] → [substitute]: [one line why it works]". Be brief.`,
+        content: `I am making "${recipe?.title}" but I am missing: ${missing.join(', ')}. For each missing ingredient, suggest a practical substitute I might already have at home.
+Use a friendly, conversational tone like a real person helping me cook.
+Each line must start with either:
+"You can use this: ..." or "Instead of this: ..."
+Then include the missing ingredient, the substitute, and one short reason it works.
+Example style:
+• You can use this: buttermilk -> milk + a little vinegar. It gives the same tang.
+• Instead of this: fresh parsley -> dried parsley. Use less since it's stronger.
+Keep it brief.`,
       }]);
       setSubSuggestions(text);
       speak(text, muted);
@@ -368,7 +376,7 @@ timerSeconds is optional — only include it if the step requires waiting (boili
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyTitle}>No recipe selected</Text>
-        <Text style={styles.emptySub}>Search for a recipe on Discover and tap "Cook with Rémy".</Text>
+        <Text style={styles.emptySub}>Search for a recipe on Discover and tap "Start Cooking".</Text>
       </View>
     );
   }
@@ -662,14 +670,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontFamily: typography.serif,
-    fontSize: 24,
+    fontSize: 27,
     color: palette.ink,
     marginBottom: spacing.sm,
     textAlign: 'center',
   },
   emptySub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.muted,
     textAlign: 'center',
     lineHeight: 22,
@@ -696,7 +704,7 @@ const styles = StyleSheet.create({
   },
   remyBadgeText: {
     fontFamily: typography.cormorant,
-    fontSize: 12,
+    fontSize: 15,
     color: palette.terracotta,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -705,7 +713,7 @@ const styles = StyleSheet.create({
   // Recipe title + meta
   recipeTitle: {
     fontFamily: typography.serif,
-    fontSize: 28,
+    fontSize: 32,
     color: palette.ink,
     marginBottom: spacing.md,
     lineHeight: 32,
@@ -718,7 +726,7 @@ const styles = StyleSheet.create({
   },
   metaItem: {
     fontFamily: typography.cormorant,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.muted,
   },
   metaDot: {
@@ -740,7 +748,7 @@ const styles = StyleSheet.create({
   },
   introText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 16,
+    fontSize: 19,
     color: palette.body,
     lineHeight: 24,
   },
@@ -752,14 +760,14 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
   },
 
   // Phase labels
   phaseLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -767,13 +775,13 @@ const styles = StyleSheet.create({
   },
   phaseTitle: {
     fontFamily: typography.serif,
-    fontSize: 28,
+    fontSize: 32,
     color: palette.ink,
     marginBottom: spacing.sm,
   },
   phaseSub: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
     marginBottom: spacing.xl,
   },
@@ -822,7 +830,7 @@ const styles = StyleSheet.create({
   },
   checkLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.ink,
     flex: 1,
   },
@@ -845,7 +853,7 @@ const styles = StyleSheet.create({
   },
   stepCounter: {
     fontFamily: typography.cormorant,
-    fontSize: 11,
+    fontSize: 14,
     color: palette.muted,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -862,7 +870,7 @@ const styles = StyleSheet.create({
   },
   stepText: {
     fontFamily: typography.cormorant,
-    fontSize: 17,
+    fontSize: 20,
     color: palette.ink,
     lineHeight: 26,
   },
@@ -886,7 +894,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: {
     fontFamily: typography.cormorant,
-    fontSize: 16,
+    fontSize: 19,
     letterSpacing: 1,
     color: palette.white,
   },
@@ -904,7 +912,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: {
     fontFamily: typography.cormorant,
-    fontSize: 16,
+    fontSize: 19,
     letterSpacing: 1,
     color: palette.body,
   },
@@ -942,7 +950,7 @@ const styles = StyleSheet.create({
   },
   fabText: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     letterSpacing: 0.8,
     color: palette.white,
   },
@@ -964,7 +972,7 @@ const styles = StyleSheet.create({
   },
   subBtnText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.terracotta,
     letterSpacing: 0.3,
   },
@@ -984,14 +992,14 @@ const styles = StyleSheet.create({
   },
   subCardTitle: {
     fontFamily: typography.cormorant,
-    fontSize: 12,
+    fontSize: 15,
     color: palette.terracotta,
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
   subCardText: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.body,
     lineHeight: 24,
   },
@@ -1021,7 +1029,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     flex: 1,
     fontFamily: typography.serif,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.ink,
     textAlign: 'center',
     marginHorizontal: spacing.sm,
@@ -1041,7 +1049,7 @@ const styles = StyleSheet.create({
   },
   replayBtnText: {
     fontFamily: typography.cormorant,
-    fontSize: 12,
+    fontSize: 15,
     color: palette.terracotta,
     letterSpacing: 0.5,
   },
@@ -1112,7 +1120,7 @@ const styles = StyleSheet.create({
   },
   doneFrench: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 16,
+    fontSize: 19,
     color: palette.terracotta,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -1120,7 +1128,7 @@ const styles = StyleSheet.create({
   },
   doneTitle: {
     fontFamily: typography.serif,
-    fontSize: 30,
+    fontSize: 34,
     color: palette.ink,
     textAlign: 'center',
     lineHeight: 34,
@@ -1129,7 +1137,7 @@ const styles = StyleSheet.create({
   },
   doneSub: {
     fontFamily: typography.cormorant,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.muted,
     letterSpacing: 0.5,
     marginBottom: spacing.xl,
@@ -1142,7 +1150,7 @@ const styles = StyleSheet.create({
   },
   doneMessage: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 16,
+    fontSize: 19,
     color: palette.body,
     textAlign: 'center',
     lineHeight: 26,

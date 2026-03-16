@@ -198,13 +198,13 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: typography.serif,
-    fontSize: 20,
+    fontSize: 23,
     color: palette.ink,
     marginBottom: 2,
   },
   subtitle: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 13,
+    fontSize: 16,
     color: palette.muted,
   },
 
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
     textAlign: 'center',
     lineHeight: 22,
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
   },
   bubbleText: {
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.ink,
     lineHeight: 22,
     backgroundColor: palette.white,
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     fontFamily: typography.cormorant,
-    fontSize: 15,
+    fontSize: 18,
     color: palette.ink,
     maxHeight: 100,
   },

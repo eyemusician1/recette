@@ -23,7 +23,7 @@ export function LoginScreen({onGoogleSignIn}: Props) {
 
       <View style={styles.center}>
         <Text style={styles.wordmark}>Recette</Text>
-        <Text style={styles.tagline}>Cook alongside the best AI chef.</Text>
+        <Text style={styles.tagline}>Cook alongside with the best AI chef.</Text>
 
         <Pressable
           onPress={() => {
@@ -32,7 +32,7 @@ export function LoginScreen({onGoogleSignIn}: Props) {
           }}
           style={({pressed}) => [styles.btn, pressed && styles.btnPressed]}>
           <View style={styles.btnShine} />
-          <Text style={styles.btnLabel}>Continue with Google</Text>
+          <Text style={styles.btnLabel}>Get Started</Text>
         </Pressable>
       </View>
 
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
   },
   tagline: {
     fontFamily: typography.imFell,
-    fontSize: 17,
+    fontSize: 20,
     color: 'rgba(245,225,185,0.92)',
     letterSpacing: 0.3,
     textAlign: 'center',
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
   },
   btnLabel: {
     fontFamily: typography.cormorant,
-    fontSize: 16,
+    fontSize: 19,
     letterSpacing: 1.6,
     color: '#fff8f0',
     textShadowColor: 'rgba(0,0,0,0.4)',
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   },
   terms: {
     fontFamily: typography.cormorantItalic,
-    fontSize: 12,
+    fontSize: 15,
     color: 'rgba(245,232,200,0.65)',
     letterSpacing: 0.4,
     textAlign: 'center',
