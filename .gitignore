@@ -4,6 +4,7 @@
 .env.development
 .env.production
 src/env.ts
+android/app/google-services.json
 
 # OSX
 #
