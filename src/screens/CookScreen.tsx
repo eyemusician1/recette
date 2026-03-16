@@ -14,20 +14,23 @@ import Tts from 'react-native-tts';
 import Ion from 'react-native-vector-icons/Ionicons';
 import {ENV} from '../env';
 import auth from '@react-native-firebase/auth';
-import {addCookHistory} from '../services/recipeService';
+import {addCookHistory, cacheSavedRecipeSteps} from '../services/recipeService';
 import {AskRemy} from '../components/AskRemy';
+import {AlertDialog} from '../components/AlertDialog';
 
 const GROQ_API_KEY = ENV.GROQ_API_KEY;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Recipe = {
   id: string;
+  uid?: string;
   title: string;
   cuisine: string;
   duration: string;
   servings: string;
   difficulty: string;
   ingredients: string[];
+  steps?: string[];
   summary: string;
 };
 
@@ -53,6 +56,12 @@ function stopSpeaking() {
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const MODEL = 'llama-3.3-70b-versatile';
+
+function normalizeSteps(input: string[]): Step[] {
+  return input
+    .map((instruction, index) => ({index: index + 1, instruction: String(instruction).trim()}))
+    .filter(step => step.instruction.length > 0);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function askGroq(messages: {role: string; content: string}[]) {
@@ -184,6 +193,7 @@ export function CookScreen({route, navigation}: any) {
   const [currentStep, setCurrentStep] = useState(0);
   const [checked, setChecked] = useState<boolean[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
+  const [finishDialogOpen, setFinishDialogOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [subLoading, setSubLoading] = useState(false);
   const [subSuggestions, setSubSuggestions] = useState('');
@@ -246,6 +256,22 @@ export function CookScreen({route, navigation}: any) {
     }
   }, [currentStep, steps, phase]);
 
+  // Speak done + save cook history when phase changes to done
+  useEffect(() => {
+    if (phase === 'done' && recipe) {
+      speak(`Bon appétit! You've finished cooking ${recipe.title}. Enjoy your meal!`, muted);
+      const user = auth().currentUser;
+      if (user) {
+        addCookHistory({
+          uid: user.uid,
+          recipeTitle: recipe.title,
+          cuisine: recipe.cuisine,
+          duration: recipe.duration,
+        }).catch(e => console.warn('Failed to save cook history:', e));
+      }
+    }
+  }, [phase, recipe, muted]);
+
   const loadSteps = async () => {
     if (!recipe) return;
     setStepsLoading(true);
@@ -262,11 +288,24 @@ timerSeconds is optional — only include it if the step requires waiting (boili
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed: Step[] = JSON.parse(clean);
       setSteps(parsed);
+      const user = auth().currentUser;
+      if (user && recipe.id) {
+        const stepText = parsed.map(step => step.instruction).filter(Boolean);
+        if (stepText.length > 0) {
+          await cacheSavedRecipeSteps(user.uid, recipe.id, stepText);
+        }
+      }
       if (parsed.length > 0) {
         speak(parsed[0].instruction, muted);
       }
     } catch {
-      setSteps([{index: 1, instruction: 'Could not load steps. Please try again.'}]);
+      const cached = normalizeSteps(recipe.steps ?? []);
+      if (cached.length > 0) {
+        setSteps(cached);
+        speak(cached[0].instruction, muted);
+      } else {
+        setSteps([{index: 1, instruction: 'Could not load steps. Connect to the internet once to cache this recipe for offline use.'}]);
+      }
     } finally {
       setStepsLoading(false);
     }
@@ -281,7 +320,7 @@ timerSeconds is optional — only include it if the step requires waiting (boili
     if (currentStep < steps.length - 1) {
       setCurrentStep(s => s + 1);
     } else {
-      setPhase('done');
+      setFinishDialogOpen(true);
     }
   };
 
@@ -317,6 +356,11 @@ timerSeconds is optional — only include it if the step requires waiting (boili
   const toggleMute = () => {
     if (!muted) {stopSpeaking();}
     setMuted(m => !m);
+  };
+
+  const confirmFinish = () => {
+    setFinishDialogOpen(false);
+    setPhase('done');
   };
 
   // ── No recipe passed ─────────────────────────────────────────────────────
@@ -542,26 +586,19 @@ timerSeconds is optional — only include it if the step requires waiting (boili
           currentStepInstruction={steps[currentStep]?.instruction}
         />
 
+        <AlertDialog
+          visible={finishDialogOpen}
+          title="Finish Cooking?"
+          message="You're on the final step. Mark this recipe as completed?"
+          confirmLabel="Yes, Finish"
+          cancelLabel="Not Yet"
+          onConfirm={confirmFinish}
+          onCancel={() => setFinishDialogOpen(false)}
+        />
+
       </KeyboardAvoidingView>
     );
   }
-
-  // Speak done + save cook history when phase changes to done
-  useEffect(() => {
-    if (phase === 'done' && recipe) {
-      speak(`Bon appétit! You've finished cooking ${recipe.title}. Enjoy your meal!`, muted);
-      // Save to cook history
-      const user = auth().currentUser;
-      if (user) {
-        addCookHistory({
-          uid: user.uid,
-          recipeTitle: recipe.title,
-          cuisine: recipe.cuisine,
-          duration: recipe.duration,
-        }).catch(e => console.warn('Failed to save cook history:', e));
-      }
-    }
-  }, [phase]);
 
   // ── Phase: Done ───────────────────────────────────────────────────────────
   return (
@@ -575,31 +612,33 @@ timerSeconds is optional — only include it if the step requires waiting (boili
           </Pressable>
         </View>
 
-        <View style={styles.doneCheck}>
-          <View style={styles.doneCheckInner} />
-        </View>
-
-        <Text style={styles.doneTitle}>Bon appétit!</Text>
+        <Text style={styles.doneFrench}>Bon Appétit!</Text>
+        <Text style={styles.doneTitle}>{recipe.title}</Text>
         <Text style={styles.doneSub}>
-          You've finished cooking{'\n'}
-          <Text style={styles.doneRecipeName}>{recipe.title}</Text>
-        </Text>
-
-        <View style={styles.doneDivider} />
-
-        <Text style={styles.doneStats}>
           {recipe.cuisine} · {recipe.duration} · {recipe.servings} servings
         </Text>
+        <View style={styles.doneDivider} />
+        <Text style={styles.doneMessage}>
+          You've cooked something wonderful today.
+        </Text>
 
-        <Pressable
-          onPress={() => {
-            setPhase('intro');
-            setCurrentStep(0);
-            setSteps([]);
-          }}
-          style={({pressed}) => [styles.primaryBtn, {marginTop: spacing.xxl}, pressed && styles.primaryBtnPressed]}>
-          <Text style={styles.primaryBtnText}>Cook Again</Text>
-        </Pressable>
+        <View style={styles.doneActions}>
+          <Pressable
+            onPress={() => navigation.navigate('home')}
+            style={({pressed}) => [styles.secondaryBtn, styles.doneSecondaryBtn, pressed && styles.secondaryBtnPressed]}>
+            <Text style={styles.secondaryBtnText}>Home</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              setPhase('intro');
+              setCurrentStep(0);
+              setSteps([]);
+            }}
+            style={({pressed}) => [styles.primaryBtn, styles.donePrimaryBtn, pressed && styles.primaryBtnPressed]}>
+            <Text style={styles.primaryBtnText}>Cook Again</Text>
+          </Pressable>
+        </View>
 
       </ScrollView>
     </View>
@@ -1068,54 +1107,59 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.xxl,
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.xxxl,
   },
-  doneCheck: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(200,82,42,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xl,
-  },
-  doneCheckInner: {
-    width: 28,
-    height: 16,
-    borderLeftWidth: 3,
-    borderBottomWidth: 3,
-    borderColor: palette.terracotta,
-    transform: [{rotate: '-45deg'}, {translateY: -3}],
+  doneFrench: {
+    fontFamily: typography.cormorantItalic,
+    fontSize: 16,
+    color: palette.terracotta,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginBottom: spacing.md,
   },
   doneTitle: {
     fontFamily: typography.serif,
-    fontSize: 36,
+    fontSize: 30,
     color: palette.ink,
-    marginBottom: spacing.md,
+    textAlign: 'center',
+    lineHeight: 34,
+    marginBottom: spacing.sm,
+    maxWidth: '85%',
   },
   doneSub: {
-    fontFamily: typography.cormorantItalic,
-    fontSize: 16,
+    fontFamily: typography.cormorant,
+    fontSize: 13,
     color: palette.muted,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  doneRecipeName: {
-    fontFamily: typography.serif,
-    fontSize: 16,
-    color: palette.ink,
-    fontStyle: 'italic',
+    letterSpacing: 0.5,
+    marginBottom: spacing.xl,
   },
   doneDivider: {
     width: 40,
     height: 1,
     backgroundColor: palette.border,
-    marginVertical: spacing.xl,
+    marginBottom: spacing.xl,
   },
-  doneStats: {
-    fontFamily: typography.cormorant,
-    fontSize: 13,
-    color: palette.muted,
-    letterSpacing: 1,
+  doneMessage: {
+    fontFamily: typography.cormorantItalic,
+    fontSize: 16,
+    color: palette.body,
+    textAlign: 'center',
+    lineHeight: 26,
+    maxWidth: '80%',
+    marginBottom: spacing.xs,
+  },
+  doneActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.xxl,
+  },
+  donePrimaryBtn: {
+    minWidth: 132,
+    paddingVertical: 14,
+  },
+  doneSecondaryBtn: {
+    minWidth: 92,
+    paddingVertical: 14,
   },
 });

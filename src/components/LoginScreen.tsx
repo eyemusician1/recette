@@ -15,7 +15,7 @@ interface Props {
 export function LoginScreen({onGoogleSignIn}: Props) {
   return (
     <ImageBackground
-      source={require('../../assets/images/login-bg.png')}
+      source={require('../../assets/images/login-bg.jpg')}
       resizeMode="cover"
       style={styles.canvas}>
 

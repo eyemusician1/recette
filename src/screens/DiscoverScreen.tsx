@@ -20,7 +20,7 @@ import Ion from 'react-native-vector-icons/Ionicons';
 import auth from '@react-native-firebase/auth';
 import {saveRecipe} from '../services/recipeService';
 
-const HERO_IMAGE = require('../../assets/images/login-bg.png');
+const HERO_IMAGE = require('../../assets/images/login-bg.jpg');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Recipe = {

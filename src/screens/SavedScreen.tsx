@@ -17,7 +17,7 @@ import {
   unsaveRecipe,
 } from '../services/recipeService';
 
-const FALLBACK = require('../../assets/images/login-bg.png');
+const FALLBACK = require('../../assets/images/login-bg.jpg');
 
 function RecipeRow({
   recipe,

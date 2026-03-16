@@ -9,6 +9,7 @@ export type SavedRecipe = {
   servings: string;
   difficulty: string;
   ingredients: string[];
+  steps?: string[];
   summary: string;
   imageUri?: string;
   savedAt?: any;
@@ -159,4 +160,23 @@ export function subscribeCustomRecipes(
       },
       err => console.warn('subscribeCustomRecipes error:', err),
     );
+}
+
+export async function cacheSavedRecipeSteps(
+  uid: string,
+  recipeId: string,
+  steps: string[],
+) {
+  try {
+    await userDoc(uid).collection('savedRecipes').doc(recipeId).set(
+      {
+        steps,
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      },
+      {merge: true},
+    );
+    return {success: true};
+  } catch (e: any) {
+    return {success: false, error: e.message};
+  }
 }

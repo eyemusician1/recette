@@ -1,5 +1,5 @@
 import React from 'react';
-import {StyleSheet, View} from 'react-native';
+import {StyleSheet} from 'react-native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import Ion from 'react-native-vector-icons/Ionicons';
 import {DiscoverScreen} from '../screens/DiscoverScreen';
@@ -9,14 +9,6 @@ import {ProfileScreen} from '../screens/ProfileScreen';
 import {palette} from '../tokens';
 
 const Tab = createBottomTabNavigator();
-
-function IconWrap({active, children}: {active: boolean; children: React.ReactNode}) {
-  return (
-    <View style={[styles.iconWrap, active ? styles.iconWrapActive : styles.iconWrapInactive]}>
-      {children}
-    </View>
-  );
-}
 
 export function AppNavigator() {
   return (
@@ -33,13 +25,11 @@ export function AppNavigator() {
         component={DiscoverScreen}
         options={{
           tabBarIcon: ({focused}) => (
-            <IconWrap active={focused}>
-              <Ion
-                name={focused ? 'compass' : 'compass-outline'}
-                size={22}
-                color={focused ? '#fff' : 'rgba(44,26,14,0.4)'}
-              />
-            </IconWrap>
+            <Ion
+              name={focused ? 'home' : 'home-outline'}
+              size={23}
+              color={focused ? palette.terracotta : palette.muted}
+            />
           ),
         }}
       />
@@ -49,13 +39,11 @@ export function AppNavigator() {
         component={CookScreen}
         options={{
           tabBarIcon: ({focused}) => (
-            <IconWrap active={focused}>
-              <Ion
-                name={focused ? 'flame' : 'flame-outline'}
-                size={22}
-                color={focused ? '#fff' : 'rgba(44,26,14,0.4)'}
-              />
-            </IconWrap>
+            <Ion
+              name={focused ? 'restaurant' : 'restaurant-outline'}
+              size={23}
+              color={focused ? palette.terracotta : palette.muted}
+            />
           ),
         }}
       />
@@ -65,13 +53,11 @@ export function AppNavigator() {
         component={SavedScreen}
         options={{
           tabBarIcon: ({focused}) => (
-            <IconWrap active={focused}>
-              <Ion
-                name={focused ? 'bookmark' : 'bookmark-outline'}
-                size={22}
-                color={focused ? '#fff' : 'rgba(44,26,14,0.4)'}
-              />
-            </IconWrap>
+            <Ion
+              name={focused ? 'bookmark' : 'bookmark-outline'}
+              size={23}
+              color={focused ? palette.terracotta : palette.muted}
+            />
           ),
         }}
       />
@@ -81,13 +67,11 @@ export function AppNavigator() {
         component={ProfileScreen}
         options={{
           tabBarIcon: ({focused}) => (
-            <IconWrap active={focused}>
-              <Ion
-                name={focused ? 'person' : 'person-outline'}
-                size={22}
-                color={focused ? '#fff' : 'rgba(44,26,14,0.4)'}
-              />
-            </IconWrap>
+            <Ion
+              name={focused ? 'person' : 'person-outline'}
+              size={23}
+              color={focused ? palette.terracotta : palette.muted}
+            />
           ),
         }}
       />
@@ -110,18 +94,5 @@ const styles = StyleSheet.create({
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  iconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconWrapActive: {
-    backgroundColor: palette.terracotta,
-  },
-  iconWrapInactive: {
-    backgroundColor: 'rgba(44,26,14,0.07)',
   },
 });
