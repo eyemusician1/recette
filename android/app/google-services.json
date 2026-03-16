@@ -1,70 +1,41 @@
 {
   "project_info": {
-    "project_number": "980431753891",
-    "project_id": "recette-eae0f",
-    "storage_bucket": "recette-eae0f.firebasestorage.app"
+    "project_number": "615221177910",
+    "project_id": "recette-de8dd",
+    "storage_bucket": "recette-de8dd.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:980431753891:android:69ceeeb8bd8738badb6516",
+        "mobilesdk_app_id": "1:615221177910:android:f1166f2136b2f4b2437297",
         "android_client_info": {
           "package_name": "com.recette"
         }
       },
       "oauth_client": [
         {
-          "client_id": "980431753891-f03isf38ch5j5g0shg60aevm8trihcuj.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyBPYgEuvBnTbhe8QHWPd0RMpQxCL75Dwgw"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "980431753891-f03isf38ch5j5g0shg60aevm8trihcuj.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:980431753891:android:a00092da8224d30ddb6516",
-        "android_client_info": {
-          "package_name": "com.remys"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "980431753891-8a408jjnkq0dn51po6dosgb1jfkg400j.apps.googleusercontent.com",
+          "client_id": "615221177910-u0lnfdh9fag8qbgigphi7j1cbroc93o5.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.remys",
-            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+            "package_name": "com.recette",
+            "certificate_hash": "980d136a8cbefcdce48b994bd56754a8c6aac361"
           }
         },
         {
-          "client_id": "980431753891-f03isf38ch5j5g0shg60aevm8trihcuj.apps.googleusercontent.com",
+          "client_id": "615221177910-q7numrt62h52l23mf4ba5df35mnde8ra.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBPYgEuvBnTbhe8QHWPd0RMpQxCL75Dwgw"
+          "current_key": "AIzaSyCn5cDuqnYJAHq78G4jUGDjbJL52BP6-yw"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "980431753891-f03isf38ch5j5g0shg60aevm8trihcuj.apps.googleusercontent.com",
+              "client_id": "615221177910-q7numrt62h52l23mf4ba5df35mnde8ra.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

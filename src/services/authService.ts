@@ -5,15 +5,31 @@ import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-sign
 export function configureGoogleSignIn() {
   GoogleSignin.configure({
     webClientId:
-      '980431753891-f03isf38ch5j5g0shg60aevm8trihcuj.apps.googleusercontent.com',
+      '615221177910-q7numrt62h52l23mf4ba5df35mnde8ra.apps.googleusercontent.com',
   });
 }
 
 export async function signInWithGoogle() {
   try {
-    await GoogleSignin.hasPlayServices();
-    await GoogleSignin.signIn();
-    const {idToken} = await GoogleSignin.getTokens();
+    await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
+    const signInResult: any = await GoogleSignin.signIn();
+
+    // Prefer token returned by signIn to avoid an extra network request.
+    let idToken: string | undefined =
+      signInResult?.data?.idToken ?? signInResult?.idToken;
+
+    if (!idToken) {
+      const tokens = await GoogleSignin.getTokens();
+      idToken = tokens.idToken;
+    }
+
+    if (!idToken) {
+      return {
+        success: false,
+        error: 'Google Sign-In did not return an ID token',
+      };
+    }
+
     const googleCredential = auth.GoogleAuthProvider.credential(idToken);
     const result = await auth().signInWithCredential(googleCredential);
     await upsertUserProfile(result.user);
@@ -27,6 +43,13 @@ export async function signInWithGoogle() {
     }
     if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
       return {success: false, error: 'Play services not available'};
+    }
+    if (error.code === 'NETWORK_ERROR' || error.message === 'NETWORK_ERROR') {
+      return {
+        success: false,
+        error:
+          'Network error during Google Sign-In. Check device date/time, Play Services, and Firebase OAuth setup.',
+      };
     }
     return {success: false, error: error.message};
   }
