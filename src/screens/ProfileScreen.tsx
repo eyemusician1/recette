@@ -7,14 +7,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import auth from '@react-native-firebase/auth';
 import Ion from 'react-native-vector-icons/Ionicons';
 import {palette, spacing, typography} from '../tokens';
 import {AlertDialog} from '../components/AlertDialog';
-import {signOut, updateDietaryPreferences, getUserProfile, updateTtsSettings, TtsLanguage} from '../services/authService';
+import {FoodPreferenceStrictness, signOut, getUserProfile, updateTtsSettings, TtsLanguage, updateFoodPreferences} from '../services/authService';
 import {getSavedRecipes, getCookHistory} from '../services/recipeService';
+import {splitExcludedIngredients} from '../utils/foodPreferences';
 
 // ─── Available dietary options ────────────────────────────────────────────────
 const DIETARY_OPTIONS = [
@@ -22,6 +24,17 @@ const DIETARY_OPTIONS = [
   'Nut-Free', 'Halal', 'Kosher', 'Low-Carb',
   'Keto', 'Paleo', 'Pescatarian', 'No Restrictions',
 ];
+
+const ALLERGY_OPTIONS = [
+  'Peanut', 'Tree Nut', 'Dairy', 'Egg', 'Soy', 'Wheat',
+  'Fish', 'Shellfish', 'Sesame', 'Gluten',
+];
+
+const STRICTNESS_LABELS: Record<FoodPreferenceStrictness, string> = {
+  prefer: 'Prefer',
+  avoid: 'Avoid',
+  strict: 'Strict',
+};
 
 // ─── Row Item ─────────────────────────────────────────────────────────────────
 function RowItem({
@@ -129,6 +142,136 @@ function DietaryModal({
   );
 }
 
+function AllergyModal({
+  visible,
+  selected,
+  onSave,
+  onClose,
+}: {
+  visible: boolean;
+  selected: string[];
+  onSave: (prefs: string[]) => void;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = useState<string[]>(selected);
+
+  useEffect(() => {
+    setLocal(selected);
+  }, [selected, visible]);
+
+  const toggle = (opt: string) => {
+    setLocal(prev =>
+      prev.includes(opt) ? prev.filter(p => p !== opt) : [...prev, opt],
+    );
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Allergies & Intolerances</Text>
+            <Text style={styles.modalSub}>Select ingredients to avoid</Text>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalOptions}>
+            {ALLERGY_OPTIONS.map(opt => {
+              const active = local.includes(opt);
+              return (
+                <Pressable
+                  key={opt}
+                  onPress={() => toggle(opt)}
+                  style={({pressed}) => [
+                    styles.optionChip,
+                    active && styles.optionChipActive,
+                    pressed && styles.optionChipPressed,
+                  ]}>
+                  <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                    {opt}
+                  </Text>
+                  {active && (
+                    <Ion name="checkmark" size={14} color={palette.terracotta} />
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            <Pressable
+              onPress={onClose}
+              style={({pressed}) => [styles.modalCancelBtn, pressed && {opacity: 0.8}]}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onSave(local)}
+              style={({pressed}) => [styles.modalSaveBtn, pressed && {opacity: 0.85}]}>
+              <Text style={styles.modalSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ExcludedIngredientsModal({
+  visible,
+  value,
+  onSave,
+  onClose,
+}: {
+  visible: boolean;
+  value: string;
+  onSave: (text: string) => void;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = useState(value);
+
+  useEffect(() => {
+    setLocal(value);
+  }, [value, visible]);
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Excluded Ingredients</Text>
+            <Text style={styles.modalSub}>Separate with commas or new lines</Text>
+          </View>
+
+          <View style={styles.excludedInputWrap}>
+            <TextInput
+              value={local}
+              onChangeText={setLocal}
+              multiline
+              placeholder="cilantro, liver, mushrooms"
+              placeholderTextColor={palette.muted}
+              style={styles.excludedInput}
+            />
+          </View>
+
+          <View style={styles.modalActions}>
+            <Pressable
+              onPress={onClose}
+              style={({pressed}) => [styles.modalCancelBtn, pressed && {opacity: 0.8}]}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onSave(local)}
+              style={({pressed}) => [styles.modalSaveBtn, pressed && {opacity: 0.85}]}>
+              <Text style={styles.modalSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export function ProfileScreen() {
   const user = auth().currentUser;
@@ -137,11 +280,16 @@ export function ProfileScreen() {
   const [historyCount, setHistoryCount] = useState(0);
   const [statsLoading, setStatsLoading] = useState(true);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
+  const [allergyPrefs, setAllergyPrefs] = useState<string[]>([]);
+  const [excludedIngredients, setExcludedIngredients] = useState<string[]>([]);
   const [showDietaryModal, setShowDietaryModal] = useState(false);
+  const [showAllergyModal, setShowAllergyModal] = useState(false);
+  const [showExcludedModal, setShowExcludedModal] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [ttsLanguage, setTtsLanguage] = useState<TtsLanguage>('en-US');
+  const [preferenceStrictness, setPreferenceStrictness] = useState<FoodPreferenceStrictness>('strict');
   const [savingTts, setSavingTts] = useState(false);
   const [langToastText, setLangToastText] = useState('');
   const [showLangToast, setShowLangToast] = useState(false);
@@ -182,11 +330,42 @@ export function ProfileScreen() {
       if (profile?.dietaryPreferences) {
         setDietaryPrefs(profile.dietaryPreferences);
       }
+      if (profile?.allergies) {
+        setAllergyPrefs(profile.allergies);
+      }
+      if (profile?.excludedIngredients) {
+        setExcludedIngredients(profile.excludedIngredients);
+      }
       if (profile?.ttsLanguage === 'tl-PH' || profile?.ttsLanguage === 'en-US') {
         setTtsLanguage(profile.ttsLanguage);
       }
+      if (
+        profile?.foodPreferenceStrictness === 'prefer' ||
+        profile?.foodPreferenceStrictness === 'avoid' ||
+        profile?.foodPreferenceStrictness === 'strict'
+      ) {
+        setPreferenceStrictness(profile.foodPreferenceStrictness);
+      }
     } catch (e) {
       console.warn('Failed to load profile', e);
+    }
+  };
+
+  const handleCycleStrictness = async () => {
+    if (!user || savingPrefs) {return;}
+    const order: FoodPreferenceStrictness[] = ['strict', 'avoid', 'prefer'];
+    const currentIndex = order.indexOf(preferenceStrictness);
+    const next = order[(currentIndex + 1) % order.length];
+
+    setPreferenceStrictness(next);
+    setSavingPrefs(true);
+    try {
+      await updateFoodPreferences(user.uid, {foodPreferenceStrictness: next});
+    } catch (e) {
+      setPreferenceStrictness(preferenceStrictness);
+      console.warn('Failed to save preference strictness', e);
+    } finally {
+      setSavingPrefs(false);
     }
   };
 
@@ -218,10 +397,39 @@ export function ProfileScreen() {
     setShowDietaryModal(false);
     setSavingPrefs(true);
     try {
-      await updateDietaryPreferences(user.uid, prefs);
+      await updateFoodPreferences(user.uid, {dietaryPreferences: prefs});
       setDietaryPrefs(prefs);
     } catch (e) {
       console.warn('Failed to save prefs', e);
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
+
+  const handleSaveAllergies = async (prefs: string[]) => {
+    if (!user) {return;}
+    setShowAllergyModal(false);
+    setSavingPrefs(true);
+    try {
+      await updateFoodPreferences(user.uid, {allergies: prefs});
+      setAllergyPrefs(prefs);
+    } catch (e) {
+      console.warn('Failed to save allergies', e);
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
+
+  const handleSaveExcluded = async (text: string) => {
+    if (!user) {return;}
+    setShowExcludedModal(false);
+    setSavingPrefs(true);
+    const parsed = splitExcludedIngredients(text);
+    try {
+      await updateFoodPreferences(user.uid, {excludedIngredients: parsed});
+      setExcludedIngredients(parsed);
+    } catch (e) {
+      console.warn('Failed to save excluded ingredients', e);
     } finally {
       setSavingPrefs(false);
     }
@@ -300,6 +508,47 @@ export function ProfileScreen() {
         )}
       </Pressable>
 
+      <Text style={styles.groupLabel}>Allergies & Intolerances</Text>
+      <Pressable
+        onPress={() => setShowAllergyModal(true)}
+        style={({pressed}) => [styles.dietaryCard, pressed && styles.dietaryCardPressed]}>
+        {savingPrefs ? (
+          <ActivityIndicator color={palette.terracotta} size="small" />
+        ) : allergyPrefs.length === 0 ? (
+          <View style={styles.dietaryEmpty}>
+            <Text style={styles.dietaryEmptyText}>None set — tap to add</Text>
+            <Ion name="warning-outline" size={18} color={palette.muted} />
+          </View>
+        ) : (
+          <View style={styles.chipsWrap}>
+            {allergyPrefs.map(p => (
+              <View key={p} style={styles.chip}>
+                <Text style={styles.chipText}>{p}</Text>
+              </View>
+            ))}
+            <View style={styles.chipAdd}>
+              <Ion name="pencil-outline" size={12} color={palette.terracotta} />
+            </View>
+          </View>
+        )}
+      </Pressable>
+
+      <Text style={styles.groupLabel}>Excluded Ingredients</Text>
+      <Pressable
+        onPress={() => setShowExcludedModal(true)}
+        style={({pressed}) => [styles.dietaryCard, pressed && styles.dietaryCardPressed]}>
+        {savingPrefs ? (
+          <ActivityIndicator color={palette.terracotta} size="small" />
+        ) : excludedIngredients.length === 0 ? (
+          <View style={styles.dietaryEmpty}>
+            <Text style={styles.dietaryEmptyText}>No exclusions — tap to add</Text>
+            <Ion name="ban-outline" size={18} color={palette.muted} />
+          </View>
+        ) : (
+          <Text style={styles.excludedPreview}>{excludedIngredients.join(', ')}</Text>
+        )}
+      </Pressable>
+
       {/* ── Preferences ── */}
       <Text style={styles.groupLabel}>Preferences</Text>
       <View style={styles.group}>
@@ -307,6 +556,12 @@ export function ProfileScreen() {
           label="Language"
           value={savingTts ? 'Saving...' : ttsLanguage === 'en-US' ? 'English' : 'Tagalog'}
           onPress={handleToggleTtsLanguage}
+        />
+        <View style={styles.divider} />
+        <RowItem
+          label="Preference Strictness"
+          value={savingPrefs ? 'Saving...' : STRICTNESS_LABELS[preferenceStrictness]}
+          onPress={handleCycleStrictness}
         />
         <View style={styles.divider} />
       </View>
@@ -405,6 +660,20 @@ export function ProfileScreen() {
         selected={dietaryPrefs}
         onSave={handleSavePrefs}
         onClose={() => setShowDietaryModal(false)}
+      />
+
+      <AllergyModal
+        visible={showAllergyModal}
+        selected={allergyPrefs}
+        onSave={handleSaveAllergies}
+        onClose={() => setShowAllergyModal(false)}
+      />
+
+      <ExcludedIngredientsModal
+        visible={showExcludedModal}
+        value={excludedIngredients.join(', ')}
+        onSave={handleSaveExcluded}
+        onClose={() => setShowExcludedModal(false)}
       />
 
       <AlertDialog
@@ -586,6 +855,12 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: palette.muted,
   },
+  excludedPreview: {
+    fontFamily: typography.cormorant,
+    fontSize: 16,
+    color: palette.body,
+    lineHeight: 22,
+  },
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -688,6 +963,23 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
     padding: spacing.xl,
+  },
+  excludedInputWrap: {
+    padding: spacing.xl,
+    paddingTop: spacing.lg,
+  },
+  excludedInput: {
+    minHeight: 130,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    backgroundColor: palette.white,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    textAlignVertical: 'top',
+    fontFamily: typography.cormorant,
+    fontSize: 17,
+    color: palette.body,
   },
   optionChip: {
     flexDirection: 'row',

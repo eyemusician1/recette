@@ -5,6 +5,13 @@ import {Platform} from 'react-native';
 
 export type TtsLanguage = 'en-US' | 'tl-PH';
 export type TtsVoiceGender = 'male' | 'female';
+export type FoodPreferenceStrictness = 'prefer' | 'avoid' | 'strict';
+export type UserFoodPreferences = {
+  dietaryPreferences?: string[];
+  allergies?: string[];
+  excludedIngredients?: string[];
+  foodPreferenceStrictness?: FoodPreferenceStrictness;
+};
 
 export function configureGoogleSignIn() {
   GoogleSignin.configure({
@@ -79,6 +86,9 @@ export async function upsertUserProfile(user: any) {
       email: user.email ?? '',
       photoURL: user.photoURL ?? '',
       dietaryPreferences: [],
+      allergies: [],
+      excludedIngredients: [],
+      foodPreferenceStrictness: 'strict',
       ttsLanguage: 'en-US',
       ttsVoiceGender: 'male',
       hasSeenDiscoverWelcome: false,
@@ -105,6 +115,13 @@ export async function updateDietaryPreferences(uid: string, prefs: string[]) {
     dietaryPreferences: prefs,
     updatedAt: firestore.FieldValue.serverTimestamp(),
   });
+}
+
+export async function updateFoodPreferences(uid: string, prefs: UserFoodPreferences) {
+  await firestore().collection('users').doc(uid).set({
+    ...prefs,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
 }
 
 export async function updateTtsSettings(

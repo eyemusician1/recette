@@ -17,10 +17,11 @@ import Ion from 'react-native-vector-icons/Ionicons';
 import {ENV} from '../env';
 import auth from '@react-native-firebase/auth';
 import {addCookHistory, cacheSavedRecipeSteps} from '../services/recipeService';
-import {getUserProfile, TtsLanguage} from '../services/authService';
+import {FoodPreferenceStrictness, getUserProfile, TtsLanguage} from '../services/authService';
 import {AskRemy} from '../components/AskRemy';
 import {AlertDialog} from '../components/AlertDialog';
 import {useIsFocused} from '@react-navigation/native';
+import {buildFoodPreferenceInstruction, normalizeList} from '../utils/foodPreferences';
 
 const GROQ_API_KEY = ENV.GROQ_API_KEY;
 
@@ -313,6 +314,10 @@ export function CookScreen({route, navigation}: any) {
   const [finishDialogOpen, setFinishDialogOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [contentLanguage, setContentLanguage] = useState<TtsLanguage>('en-US');
+  const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
+  const [allergyPrefs, setAllergyPrefs] = useState<string[]>([]);
+  const [excludedIngredients, setExcludedIngredients] = useState<string[]>([]);
+  const [preferenceStrictness, setPreferenceStrictness] = useState<FoodPreferenceStrictness>('strict');
   const [subLoading, setSubLoading] = useState(false);
   const [subSuggestions, setSubSuggestions] = useState('');
   const [timerToast, setTimerToast] = useState<{title: string; message: string} | null>(null);
@@ -366,9 +371,21 @@ export function CookScreen({route, navigation}: any) {
         const profile = await getUserProfile(uid);
         const language: TtsLanguage = profile?.ttsLanguage === 'tl-PH' ? 'tl-PH' : 'en-US';
         setContentLanguage(language);
+        setDietaryPrefs(normalizeList(profile?.dietaryPreferences));
+        setAllergyPrefs(normalizeList(profile?.allergies));
+        setExcludedIngredients(normalizeList(profile?.excludedIngredients));
+        setPreferenceStrictness(
+          profile?.foodPreferenceStrictness === 'prefer' || profile?.foodPreferenceStrictness === 'avoid'
+            ? profile.foodPreferenceStrictness
+            : 'strict',
+        );
         await applyTtsPreferences(language);
       } catch {
         setContentLanguage('en-US');
+        setDietaryPrefs([]);
+        setAllergyPrefs([]);
+        setExcludedIngredients([]);
+        setPreferenceStrictness('strict');
         await applyTtsPreferences('en-US');
       }
     };
@@ -412,7 +429,7 @@ export function CookScreen({route, navigation}: any) {
       return;
     }
     loadIntro();
-  }, [contentLanguage]);
+  }, [contentLanguage, dietaryPrefs, allergyPrefs, excludedIngredients]);
 
   const loadIntro = async () => {
     if (!recipe) return;
@@ -425,7 +442,13 @@ Write clearly for a home cook.
 Keep the intro concise, practical, and motivating.
 Do not use markdown, lists, or symbols.
 Use plain conversational sentences suitable for text-to-speech.
-${getAiLanguageInstruction(contentLanguage)}`,
+${getAiLanguageInstruction(contentLanguage)}
+${buildFoodPreferenceInstruction(contentLanguage, {
+  dietaryPreferences: dietaryPrefs,
+  allergies: allergyPrefs,
+  excludedIngredients,
+  strictness: preferenceStrictness,
+})}`,
       }, {
         role: 'user',
         content: `I am about to cook "${recipe.title}".
@@ -488,6 +511,12 @@ Return only raw JSON with no markdown and no extra commentary.
 Every step must be concrete, sequential, and safe for a home cook.
       Use direct action verbs and include specific cues when to move to the next step.
       ${getAiLanguageInstruction(contentLanguage)}
+  ${buildFoodPreferenceInstruction(contentLanguage, {
+    dietaryPreferences: dietaryPrefs,
+    allergies: allergyPrefs,
+    excludedIngredients,
+        strictness: preferenceStrictness,
+  })}
       Write every "instruction" value in ${isTagalog(contentLanguage) ? 'Tagalog' : 'English'}.`,
       }, {
         role: 'user',
@@ -574,7 +603,14 @@ Rules:
     try {
       const text = await askGroq([{
         role: 'system',
-        content: `You are Rémy, a helpful AI chef. Be concise and practical. ${getAiLanguageInstruction(contentLanguage)}`,
+        content: `You are Rémy, a helpful AI chef. Be concise and practical.
+${getAiLanguageInstruction(contentLanguage)}
+${buildFoodPreferenceInstruction(contentLanguage, {
+  dietaryPreferences: dietaryPrefs,
+  allergies: allergyPrefs,
+  excludedIngredients,
+  strictness: preferenceStrictness,
+})}`,
       }, {
         role: 'user',
         content: `I am making "${recipe?.title}" but I am missing: ${missing.join(', ')}. For each missing ingredient, suggest a practical substitute I might already have at home.
@@ -862,6 +898,10 @@ Keep it brief and natural for text-to-speech.`,
           recipeTitle={recipe?.title}
           currentStepInstruction={steps[currentStep]?.instruction}
           language={contentLanguage}
+          dietaryPrefs={dietaryPrefs}
+          allergyPrefs={allergyPrefs}
+          excludedIngredients={excludedIngredients}
+          strictness={preferenceStrictness}
         />
 
         <AlertDialog

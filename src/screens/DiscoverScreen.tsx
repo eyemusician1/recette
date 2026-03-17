@@ -20,8 +20,9 @@ import {palette, spacing, typography} from '../tokens';
 import Ion from 'react-native-vector-icons/Ionicons';
 import auth from '@react-native-firebase/auth';
 import {useFocusEffect} from '@react-navigation/native';
-import {getUserProfile, markDiscoverWelcomeSeen, TtsLanguage} from '../services/authService';
+import {FoodPreferenceStrictness, getUserProfile, markDiscoverWelcomeSeen, TtsLanguage} from '../services/authService';
 import {saveRecipe} from '../services/recipeService';
+import {buildFoodPreferenceInstruction, getPreferenceCompliance, normalizeList} from '../utils/foodPreferences';
 
 const HERO_IMAGE = require('../../assets/images/login-bg.jpg');
 
@@ -35,6 +36,8 @@ type Recipe = {
   difficulty: string;
   ingredients: string[];
   summary: string;
+  complianceNote?: string;
+  compliant?: boolean;
 };
 
 function normalizeIngredientList(ingredients: string[]): string[] {
@@ -105,12 +108,16 @@ function RecipeCard({
   onSave,
   saved,
   imageUri,
+  complianceNote,
+  compliant,
 }: {
   recipe: Recipe;
   onCook: (r: Recipe) => void;
   onSave: (r: Recipe, imageUri?: string) => void;
   saved: boolean;
   imageUri?: string;
+  complianceNote?: string;
+  compliant?: boolean;
 }) {
 
   return (
@@ -144,6 +151,14 @@ function RecipeCard({
 
         <Text style={styles.rcardSummary}>{recipe.summary}</Text>
 
+        {complianceNote ? (
+          <View style={[styles.prefBadge, compliant ? styles.prefBadgeOk : styles.prefBadgeWarn]}>
+            <Text style={[styles.prefBadgeText, compliant ? styles.prefBadgeTextOk : styles.prefBadgeTextWarn]}>
+              {complianceNote}
+            </Text>
+          </View>
+        ) : null}
+
         {/* Action buttons */}
         <View style={styles.cardActions}>
           <Pressable
@@ -170,7 +185,9 @@ const MemoRecipeCard = React.memo(RecipeCard, (prev, next) => {
   return (
     prev.saved === next.saved &&
     prev.recipe.id === next.recipe.id &&
-    prev.imageUri === next.imageUri
+    prev.imageUri === next.imageUri &&
+    prev.complianceNote === next.complianceNote &&
+    prev.compliant === next.compliant
   );
 });
 
@@ -185,6 +202,10 @@ export function DiscoverScreen({navigation}: any) {
   const [imageByRecipeId, setImageByRecipeId] = useState<Record<string, string>>({});
   const [showWelcome, setShowWelcome] = useState(false);
   const [contentLanguage, setContentLanguage] = useState<TtsLanguage>('en-US');
+  const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
+  const [allergyPrefs, setAllergyPrefs] = useState<string[]>([]);
+  const [excludedIngredients, setExcludedIngredients] = useState<string[]>([]);
+  const [preferenceStrictness, setPreferenceStrictness] = useState<FoodPreferenceStrictness>('strict');
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
@@ -208,6 +229,14 @@ export function DiscoverScreen({navigation}: any) {
 
         const nextLanguage: TtsLanguage = profile?.ttsLanguage === 'tl-PH' ? 'tl-PH' : 'en-US';
         setContentLanguage(nextLanguage);
+        setDietaryPrefs(normalizeList(profile?.dietaryPreferences));
+        setAllergyPrefs(normalizeList(profile?.allergies));
+        setExcludedIngredients(normalizeList(profile?.excludedIngredients));
+        setPreferenceStrictness(
+          profile?.foodPreferenceStrictness === 'prefer' || profile?.foodPreferenceStrictness === 'avoid'
+            ? profile.foodPreferenceStrictness
+            : 'strict',
+        );
 
         const createdAt = user.metadata?.creationTime ? new Date(user.metadata.creationTime).getTime() : 0;
         const lastSignIn = user.metadata?.lastSignInTime ? new Date(user.metadata.lastSignInTime).getTime() : 0;
@@ -273,7 +302,13 @@ Recipes must be practical, realistic, and easy to follow at home.
         Use concise and natural wording suitable for text-to-speech.
         ${contentLanguage === 'tl-PH'
           ? 'Generate title, summary, and ingredients in Tagalog (Filipino).'
-          : 'Generate title, summary, and ingredients in English.'}`,
+          : 'Generate title, summary, and ingredients in English.'}
+        ${buildFoodPreferenceInstruction(contentLanguage, {
+          dietaryPreferences: dietaryPrefs,
+          allergies: allergyPrefs,
+          excludedIngredients,
+          strictness: preferenceStrictness,
+        })}`,
             }, {
               role: 'user',
               content: `The user searched for: "${searchTerm}". Return exactly 3 recipe results as a JSON array with these exact fields: [{"id": "unique string", "title": "Recipe name", "cuisine": "Cuisine type", "duration": "X min", "servings": "number", "difficulty": "Easy | Medium | Hard", "ingredients": ["ingredient with amount and prep note", ...], "summary": "One sentence description"}].
@@ -307,7 +342,19 @@ Rules:
       const normalized = parsed.map(recipe => ({
         ...recipe,
         ingredients: normalizeIngredientList(recipe.ingredients ?? []),
-      }));
+      })).map(recipe => {
+        const check = getPreferenceCompliance([recipe.title, ...(recipe.ingredients ?? [])], {
+          dietaryPreferences: dietaryPrefs,
+          allergies: allergyPrefs,
+          excludedIngredients,
+          strictness: preferenceStrictness,
+        });
+        return {
+          ...recipe,
+          compliant: check.matches,
+          complianceNote: check.note,
+        };
+      });
       setRecipes(normalized);
 
       const immediateImages: Record<string, string> = {};
@@ -352,7 +399,7 @@ Rules:
         setLoading(false);
       }
     }
-  }, [query, contentLanguage]);
+  }, [query, contentLanguage, dietaryPrefs, allergyPrefs, excludedIngredients, preferenceStrictness]);
 
   const scheduleSearch = useCallback((forcedQuery?: string) => {
     if (debounceRef.current) {
@@ -366,7 +413,7 @@ Rules:
   useEffect(() => {
     if (!searched || query.trim().length === 0 || loading) {return;}
     scheduleSearch(query);
-  }, [contentLanguage]);
+  }, [contentLanguage, dietaryPrefs, allergyPrefs, excludedIngredients, preferenceStrictness]);
 
   const handleCook = useCallback((recipe: Recipe) => {
     navigation.navigate('cook', {recipe});
@@ -402,6 +449,8 @@ Rules:
         onSave={handleSave}
         saved={savedIds.has(item.id)}
         imageUri={imageByRecipeId[item.id]}
+        complianceNote={item.complianceNote}
+        compliant={item.compliant}
       />
     );
   }, [handleCook, handleSave, savedIds, imageByRecipeId]);
@@ -832,6 +881,32 @@ const styles = StyleSheet.create({
     color: palette.body,
     lineHeight: 20,
     marginBottom: spacing.md,
+  },
+  prefBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 4,
+    paddingHorizontal: spacing.md,
+    alignSelf: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  prefBadgeOk: {
+    backgroundColor: 'rgba(76,143,92,0.08)',
+    borderColor: 'rgba(76,143,92,0.28)',
+  },
+  prefBadgeWarn: {
+    backgroundColor: 'rgba(200,82,42,0.08)',
+    borderColor: 'rgba(200,82,42,0.25)',
+  },
+  prefBadgeText: {
+    fontFamily: typography.cormorant,
+    fontSize: 14,
+  },
+  prefBadgeTextOk: {
+    color: '#3E7F50',
+  },
+  prefBadgeTextWarn: {
+    color: palette.terracotta,
   },
   cardActions: {
     flexDirection: 'row',

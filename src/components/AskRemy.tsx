@@ -15,7 +15,8 @@ import {
 import Ion from 'react-native-vector-icons/Ionicons';
 import {palette, spacing, typography} from '../tokens';
 import {ENV} from '../env';
-import {TtsLanguage} from '../services/authService';
+import {FoodPreferenceStrictness, TtsLanguage} from '../services/authService';
+import {buildFoodPreferenceInstruction} from '../utils/foodPreferences';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.3-70b-versatile';
@@ -32,6 +33,10 @@ type Props = {
   recipeTitle?: string;
   currentStepInstruction?: string;
   language?: TtsLanguage;
+  dietaryPrefs?: string[];
+  allergyPrefs?: string[];
+  excludedIngredients?: string[];
+  strictness?: FoodPreferenceStrictness;
 };
 
 async function askGroq(messages: {role: string; content: string}[]) {
@@ -52,7 +57,15 @@ async function askGroq(messages: {role: string; content: string}[]) {
   return data.choices?.[0]?.message?.content ?? '';
 }
 
-function buildRemySystemPrompt(language: TtsLanguage, recipeTitle?: string, currentStepInstruction?: string) {
+function buildRemySystemPrompt(
+  language: TtsLanguage,
+  dietaryPrefs: string[],
+  allergyPrefs: string[],
+  excludedIngredients: string[],
+  strictness: FoodPreferenceStrictness,
+  recipeTitle?: string,
+  currentStepInstruction?: string,
+) {
   const recipeContext = recipeTitle
     ? `Recipe context: The user is cooking "${recipeTitle}".`
     : 'Recipe context: No recipe title provided yet.';
@@ -68,6 +81,12 @@ function buildRemySystemPrompt(language: TtsLanguage, recipeTitle?: string, curr
     recipeContext,
     stepContext,
     languageRule,
+    buildFoodPreferenceInstruction(language, {
+      dietaryPreferences: dietaryPrefs,
+      allergies: allergyPrefs,
+      excludedIngredients,
+      strictness,
+    }),
     'Response rules:',
     '1) Keep replies concise and actionable in 2-5 short sentences.',
     '2) Prefer concrete guidance with quantities, timing, heat level, and visual cues when useful.',
@@ -79,7 +98,17 @@ function buildRemySystemPrompt(language: TtsLanguage, recipeTitle?: string, curr
   ].join('\n');
 }
 
-export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction, language = 'en-US'}: Props) {
+export function AskRemy({
+  visible,
+  onClose,
+  recipeTitle,
+  currentStepInstruction,
+  language = 'en-US',
+  dietaryPrefs = [],
+  allergyPrefs = [],
+  excludedIngredients = [],
+  strictness = 'strict',
+}: Props) {
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,7 +130,15 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction, 
       const reply = await askGroq([
         {
           role: 'system',
-          content: buildRemySystemPrompt(language, recipeTitle, currentStepInstruction),
+          content: buildRemySystemPrompt(
+            language,
+            dietaryPrefs,
+            allergyPrefs,
+            excludedIngredients,
+            strictness,
+            recipeTitle,
+            currentStepInstruction,
+          ),
         },
         ...recentHistory,
         {role: 'user', content: userMsg},
