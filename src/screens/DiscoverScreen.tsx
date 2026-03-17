@@ -1,16 +1,16 @@
-import React, {useCallback, useEffect, useState, useRef} from 'react';
+import React, {useCallback, useState, useEffect, useRef, useMemo} from 'react';
 import {ENV} from '../env';
 
 const UNSPLASH_KEY = ENV.UNSPLASH_ACCESS_KEY;
 const GROQ_KEY = ENV.GROQ_API_KEY;
 import {
   ActivityIndicator,
+  FlatList,
   ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,9 +19,9 @@ import {
 import {palette, spacing, typography} from '../tokens';
 import Ion from 'react-native-vector-icons/Ionicons';
 import auth from '@react-native-firebase/auth';
-import {getUserProfile, markDiscoverWelcomeSeen} from '../services/authService';
-import {saveRecipe} from '../services/recipeService';
 import {useFocusEffect} from '@react-navigation/native';
+import {getUserProfile, markDiscoverWelcomeSeen, TtsLanguage} from '../services/authService';
+import {saveRecipe} from '../services/recipeService';
 
 const HERO_IMAGE = require('../../assets/images/login-bg.jpg');
 
@@ -37,15 +37,61 @@ type Recipe = {
   summary: string;
 };
 
+function normalizeIngredientList(ingredients: string[]): string[] {
+  return ingredients
+    .map(item => String(item).trim())
+    .filter(Boolean)
+    .map(item => item.replace(/\s+/g, ' '))
+    .filter((item, index, arr) => arr.findIndex(v => v.toLowerCase() === item.toLowerCase()) === index);
+}
+
 // ─── Recipe Card ──────────────────────────────────────────────────────────────
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(
+  url: string,
+  init?: RequestInit,
+  retries = 2,
+  baseDelayMs = 300,
+): Promise<Response> {
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const response = await fetch(url, init);
+      const retryableStatus = response.status >= 500 || response.status === 429;
+      if (!retryableStatus || attempt >= retries) {
+        return response;
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw error;
+      }
+      if (attempt >= retries) {
+        throw error;
+      }
+    }
+
+    attempt += 1;
+    await sleep(baseDelayMs * attempt);
+  }
+}
 
 
 async function fetchFoodImage(query: string): Promise<string | null> {
   try {
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + " food")}&per_page=1&orientation=landscape`,
       {headers: {Authorization: `Client-ID ${UNSPLASH_KEY}`}},
+      1,
+      250,
     );
+    if (!res.ok) {
+      return null;
+    }
     const data = await res.json();
     return data.results?.[0]?.urls?.regular ?? null;
   } catch {
@@ -53,20 +99,22 @@ async function fetchFoodImage(query: string): Promise<string | null> {
   }
 }
 
-function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r: Recipe) => void; onSave: (r: Recipe, imageUri?: string) => void; saved: boolean}) {
-  const [expanded, setExpanded] = useState(false);
-  const [imageUri, setImageUri] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchFoodImage(recipe.title).then(uri => {
-      if (uri) {setImageUri(uri);}
-    });
-  }, [recipe.title]);
+function RecipeCard({
+  recipe,
+  onCook,
+  onSave,
+  saved,
+  imageUri,
+}: {
+  recipe: Recipe;
+  onCook: (r: Recipe) => void;
+  onSave: (r: Recipe, imageUri?: string) => void;
+  saved: boolean;
+  imageUri?: string;
+}) {
 
   return (
-    <Pressable
-      onPress={() => setExpanded(e => !e)}
-      style={({pressed}) => [styles.rcard, pressed && styles.rcardPressed]}>
+    <Pressable style={({pressed}) => [styles.rcard, pressed && styles.rcardPressed]}>
 
       {/* Header image area */}
       <ImageBackground
@@ -96,12 +144,6 @@ function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r
 
         <Text style={styles.rcardSummary}>{recipe.summary}</Text>
 
-        {/* Ingredients */}
-        <Text style={styles.rcardIngredientsLabel}>Ingredients</Text>
-        <Text style={styles.rcardIngredients}>
-          {recipe.ingredients.join(' · ')}
-        </Text>
-
         {/* Action buttons */}
         <View style={styles.cardActions}>
           <Pressable
@@ -110,7 +152,7 @@ function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r
             <Text style={styles.cookBtnText}>Start Cooking</Text>
           </Pressable>
           <Pressable
-            onPress={() => !saved && onSave(recipe, imageUri ?? undefined)}
+            onPress={() => !saved && onSave(recipe, imageUri)}
             style={({pressed}) => [styles.saveBtn, saved && styles.saveBtnActive, pressed && styles.saveBtnPressed]}>
             <Ion
               name={saved ? 'bookmark' : 'bookmark-outline'}
@@ -124,6 +166,14 @@ function RecipeCard({recipe, onCook, onSave, saved}: {recipe: Recipe; onCook: (r
   );
 }
 
+const MemoRecipeCard = React.memo(RecipeCard, (prev, next) => {
+  return (
+    prev.saved === next.saved &&
+    prev.recipe.id === next.recipe.id &&
+    prev.imageUri === next.imageUri
+  );
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export function DiscoverScreen({navigation}: any) {
   const [query, setQuery] = useState('');
@@ -132,8 +182,14 @@ export function DiscoverScreen({navigation}: any) {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [imageByRecipeId, setImageByRecipeId] = useState<Record<string, string>>({});
   const [showWelcome, setShowWelcome] = useState(false);
+  const [contentLanguage, setContentLanguage] = useState<TtsLanguage>('en-US');
   const inputRef = useRef<TextInput>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRequestRef = useRef<AbortController | null>(null);
+  const latestRequestIdRef = useRef(0);
+  const imageCacheRef = useRef<Map<string, string | null>>(new Map());
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -150,8 +206,14 @@ export function DiscoverScreen({navigation}: any) {
           return;
         }
 
-        // Only true for users created after this onboarding was introduced.
-        if (profile?.hasSeenDiscoverWelcome === false) {
+        const nextLanguage: TtsLanguage = profile?.ttsLanguage === 'tl-PH' ? 'tl-PH' : 'en-US';
+        setContentLanguage(nextLanguage);
+
+        const createdAt = user.metadata?.creationTime ? new Date(user.metadata.creationTime).getTime() : 0;
+        const lastSignIn = user.metadata?.lastSignInTime ? new Date(user.metadata.lastSignInTime).getTime() : 0;
+        const isFirstLogin = createdAt > 0 && lastSignIn > 0 && Math.abs(createdAt - lastSignIn) < 120000;
+
+        if (profile?.hasSeenDiscoverWelcome === false || (profile?.hasSeenDiscoverWelcome == null && isFirstLogin)) {
           setShowWelcome(true);
           await markDiscoverWelcomeSeen(user.uid);
         }
@@ -166,50 +228,151 @@ export function DiscoverScreen({navigation}: any) {
     };
   }, []));
 
-  const searchRecipes = async () => {
-    if (!query.trim()) return;
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+      activeRequestRef.current?.abort();
+    };
+  }, []);
+
+  const searchRecipes = useCallback(async (forcedQuery?: string) => {
+    const searchTerm = (forcedQuery ?? query).trim();
+    if (!searchTerm) {return;}
+
+    activeRequestRef.current?.abort();
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
+    const requestId = latestRequestIdRef.current + 1;
+    latestRequestIdRef.current = requestId;
+
     setLoading(true);
     setError('');
     setSearched(true);
 
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROQ_KEY}`,
+      const response = await fetchWithRetry(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${GROQ_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            max_tokens: 1100,
+            temperature: 0.35,
+            messages: [{
+              role: 'system',
+              content: `You are Rémy, a professional chef assistant helping home cooks.
+Return only valid raw JSON array output with no markdown, no prose, and no extra keys.
+Recipes must be practical, realistic, and easy to follow at home.
+        Use concise and natural wording suitable for text-to-speech.
+        ${contentLanguage === 'tl-PH'
+          ? 'Generate title, summary, and ingredients in Tagalog (Filipino).'
+          : 'Generate title, summary, and ingredients in English.'}`,
+            }, {
+              role: 'user',
+              content: `The user searched for: "${searchTerm}". Return exactly 3 recipe results as a JSON array with these exact fields: [{"id": "unique string", "title": "Recipe name", "cuisine": "Cuisine type", "duration": "X min", "servings": "number", "difficulty": "Easy | Medium | Hard", "ingredients": ["ingredient with amount and prep note", ...], "summary": "One sentence description"}].
+Rules:
+1) Give 3 clearly different recipe ideas, not near-duplicates.
+2) Use specific recipe titles and realistic cuisine labels.
+3) Duration must be practical for home cooking.
+4) Summary must be one sentence that highlights flavor and style.
+5) For each recipe, provide 8 to 14 realistic ingredients.
+6) Each ingredient must include quantity and prep note when useful.
+7) Avoid vague ingredients like "seasoning" unless exact type is named.
+8) Keep all ingredient lists complete enough to cook the dish.`,
+            }],
+          }),
         },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          max_tokens: 1000,
-          messages: [{
-            role: 'system',
-            content: 'You are a professional chef assistant. Return only raw JSON arrays, no markdown, no explanation.',
-          }, {
-            role: 'user',
-            content: `The user searched for: "${query}". Return exactly 3 recipe results as a JSON array with these exact fields: [{"id": "unique string", "title": "Recipe name", "cuisine": "Cuisine type", "duration": "X min", "servings": "number", "difficulty": "Easy | Medium | Hard", "ingredients": ["ingredient 1", ...], "summary": "One sentence description"}]`,
-          }],
-        }),
-      });
+        2,
+        350,
+      );
+
+      if (!response.ok) {
+        throw new Error(`Search failed with status ${response.status}`);
+      }
 
       const data = await response.json();
+      if (requestId !== latestRequestIdRef.current) {
+        return;
+      }
       const text = data.choices?.[0]?.message?.content ?? '';
       const clean = text.replace(/```json|```/g, '').trim();
       const parsed: Recipe[] = JSON.parse(clean);
-      setRecipes(parsed);
+      const normalized = parsed.map(recipe => ({
+        ...recipe,
+        ingredients: normalizeIngredientList(recipe.ingredients ?? []),
+      }));
+      setRecipes(normalized);
+
+      const immediateImages: Record<string, string> = {};
+      normalized.forEach(recipe => {
+        const cached = imageCacheRef.current.get(recipe.title);
+        if (cached) {
+          immediateImages[recipe.id] = cached;
+        }
+      });
+      setImageByRecipeId(immediateImages);
+
+      const missingRecipes = normalized.filter(recipe => !imageCacheRef.current.has(recipe.title));
+      if (missingRecipes.length > 0) {
+        const fetched = await Promise.all(
+          missingRecipes.map(async recipe => {
+            const uri = await fetchFoodImage(recipe.title);
+            imageCacheRef.current.set(recipe.title, uri);
+            return {id: recipe.id, uri};
+          }),
+        );
+
+        if (requestId === latestRequestIdRef.current) {
+          setImageByRecipeId(prev => {
+            const next = {...prev};
+            fetched.forEach(({id, uri}) => {
+              if (uri) {
+                next[id] = uri;
+              }
+            });
+            return next;
+          });
+        }
+      }
     } catch (e) {
+      if ((e as any)?.name === 'AbortError') {
+        return;
+      }
       setError('Could not find recipes. Please try again.');
       setRecipes([]);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestIdRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, [query, contentLanguage]);
 
-  const handleCook = (recipe: Recipe) => {
+  const scheduleSearch = useCallback((forcedQuery?: string) => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      searchRecipes(forcedQuery);
+    }, 400);
+  }, [searchRecipes]);
+
+  useEffect(() => {
+    if (!searched || query.trim().length === 0 || loading) {return;}
+    scheduleSearch(query);
+  }, [contentLanguage]);
+
+  const handleCook = useCallback((recipe: Recipe) => {
     navigation.navigate('cook', {recipe});
-  };
+  }, [navigation]);
 
-  const handleSave = async (recipe: Recipe, imageUri?: string) => {
+  const handleSave = useCallback(async (recipe: Recipe, imageUri?: string) => {
     const user = auth().currentUser;
     if (!user) {return;}
     if (savedIds.has(recipe.id)) {return;}
@@ -229,7 +392,115 @@ export function DiscoverScreen({navigation}: any) {
     } else {
       console.warn('Save failed:', result.error);
     }
-  };
+  }, [savedIds]);
+
+  const renderRecipe = useCallback(({item}: {item: Recipe}) => {
+    return (
+      <MemoRecipeCard
+        recipe={item}
+        onCook={handleCook}
+        onSave={handleSave}
+        saved={savedIds.has(item.id)}
+        imageUri={imageByRecipeId[item.id]}
+      />
+    );
+  }, [handleCook, handleSave, savedIds, imageByRecipeId]);
+
+  const listExtraData = useMemo(() => ({savedIds, imageByRecipeId}), [savedIds, imageByRecipeId]);
+
+  const listHeader = useMemo(() => (
+    <>
+      <ImageBackground
+        source={HERO_IMAGE}
+        style={styles.hero}
+        resizeMode="cover">
+        <View style={styles.heroOverlay} />
+        <View style={styles.heroContent}>
+          <Text style={styles.heroGreeting}>Bon appétit.</Text>
+          <Text style={styles.heroSub}>What shall we cook today?</Text>
+        </View>
+      </ImageBackground>
+
+      <View style={styles.searchWrap}>
+        <View style={styles.searchBar}>
+          <View style={styles.searchIcon}>
+            <View style={styles.searchCircle} />
+            <View style={styles.searchHandle} />
+          </View>
+          <TextInput
+            ref={inputRef}
+            style={styles.searchInput}
+            placeholder="Search any recipe..."
+            placeholderTextColor={palette.muted}
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={() => scheduleSearch()}
+            returnKeyType="search"
+            autoCorrect={false}
+          />
+          {query.length > 0 && (
+            <Pressable
+              onPress={() => {
+                if (debounceRef.current) {
+                  clearTimeout(debounceRef.current);
+                }
+                activeRequestRef.current?.abort();
+                setQuery('');
+                setRecipes([]);
+                setImageByRecipeId({});
+                setSearched(false);
+                setLoading(false);
+                setError('');
+              }}
+              style={styles.clearBtn}>
+              <View style={styles.clearX} />
+              <View style={styles.clearX2} />
+            </Pressable>
+          )}
+        </View>
+
+        {query.length > 0 && (
+          <Pressable
+            onPress={() => scheduleSearch()}
+            style={({pressed}) => [styles.searchSubmit, pressed && styles.searchSubmitPressed]}>
+            <Text style={styles.searchSubmitText}>Search</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <View style={styles.results}>
+        {loading && (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator color={palette.terracotta} size="small" />
+            <Text style={styles.loadingText}>Rémy is finding recipes...</Text>
+          </View>
+        )}
+
+        {error !== '' && (
+          <Text style={styles.errorText}>{error}</Text>
+        )}
+
+        {!loading && searched && recipes.length > 0 && (
+          <Text style={styles.resultsLabel}>
+            Results for "{query}"
+          </Text>
+        )}
+
+        {!loading && searched && recipes.length === 0 && !error && (
+          <Text style={styles.emptyText}>No recipes found. Try a different search.</Text>
+        )}
+
+        {!searched && !loading && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateTitle}>Search to get started</Text>
+            <Text style={styles.emptyStateSub}>
+              Try "adobo", "chicken soup",{'\n'}or "easy desserts"
+            </Text>
+          </View>
+        )}
+      </View>
+    </>
+  ), [query, scheduleSearch, loading, error, searched, recipes.length]);
 
   return (
     <KeyboardAvoidingView
@@ -271,104 +542,20 @@ export function DiscoverScreen({navigation}: any) {
         </View>
       </Modal>
 
-      <ScrollView
+      <FlatList
+        data={!loading && searched ? recipes : []}
+        renderItem={renderRecipe}
+        keyExtractor={item => item.id}
+        extraData={listExtraData}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
-
-        {/* Hero */}
-        <ImageBackground
-          source={HERO_IMAGE}
-          style={styles.hero}
-          resizeMode="cover">
-          <View style={styles.heroOverlay} />
-          <View style={styles.heroContent}>
-            <Text style={styles.heroGreeting}>Bon appétit.</Text>
-            <Text style={styles.heroSub}>What shall we cook today?</Text>
-          </View>
-        </ImageBackground>
-
-        {/* Search bar */}
-        <View style={styles.searchWrap}>
-          <View style={styles.searchBar}>
-            <View style={styles.searchIcon}>
-              <View style={styles.searchCircle} />
-              <View style={styles.searchHandle} />
-            </View>
-            <TextInput
-              ref={inputRef}
-              style={styles.searchInput}
-              placeholder="Search any recipe..."
-              placeholderTextColor={palette.muted}
-              value={query}
-              onChangeText={setQuery}
-              onSubmitEditing={searchRecipes}
-              returnKeyType="search"
-              autoCorrect={false}
-            />
-            {query.length > 0 && (
-              <Pressable
-                onPress={() => {
-                  setQuery('');
-                  setRecipes([]);
-                  setSearched(false);
-                }}
-                style={styles.clearBtn}>
-                <View style={styles.clearX} />
-                <View style={styles.clearX2} />
-              </Pressable>
-            )}
-          </View>
-
-          {query.length > 0 && (
-            <Pressable
-              onPress={searchRecipes}
-              style={({pressed}) => [styles.searchSubmit, pressed && styles.searchSubmitPressed]}>
-              <Text style={styles.searchSubmitText}>Search</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {/* Results area */}
-        <View style={styles.results}>
-
-          {loading && (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color={palette.terracotta} size="small" />
-              <Text style={styles.loadingText}>Rémy is finding recipes...</Text>
-            </View>
-          )}
-
-          {error !== '' && (
-            <Text style={styles.errorText}>{error}</Text>
-          )}
-
-          {!loading && searched && recipes.length > 0 && (
-            <>
-              <Text style={styles.resultsLabel}>
-                Results for "{query}"
-              </Text>
-              {recipes.map(recipe => (
-                <RecipeCard key={recipe.id} recipe={recipe} onCook={handleCook} onSave={handleSave} saved={savedIds.has(recipe.id)} />
-              ))}
-            </>
-          )}
-
-          {!loading && searched && recipes.length === 0 && !error && (
-            <Text style={styles.emptyText}>No recipes found. Try a different search.</Text>
-          )}
-
-          {!searched && !loading && (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateTitle}>Search to get started</Text>
-              <Text style={styles.emptyStateSub}>
-                Try "adobo", "chicken soup",{'\n'}or "easy desserts"
-              </Text>
-            </View>
-          )}
-
-        </View>
-      </ScrollView>
+        ListHeaderComponent={listHeader}
+        contentContainerStyle={styles.scrollContent}
+        initialNumToRender={4}
+        maxToRenderPerBatch={6}
+        windowSize={5}
+        removeClippedSubviews
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -504,6 +691,7 @@ const styles = StyleSheet.create({
   results: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
   },
   resultsLabel: {
     fontFamily: typography.cormorant,
@@ -564,6 +752,7 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     borderRadius: 16,
     overflow: 'hidden',
+    marginHorizontal: spacing.xl,
     marginBottom: spacing.lg,
   },
   rcardPressed: {
@@ -643,21 +832,6 @@ const styles = StyleSheet.create({
     color: palette.body,
     lineHeight: 20,
     marginBottom: spacing.md,
-  },
-  rcardIngredientsLabel: {
-    fontFamily: typography.cormorant,
-    fontSize: 14,
-    color: palette.muted,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  rcardIngredients: {
-    fontFamily: typography.cormorant,
-    fontSize: 17,
-    color: palette.body,
-    lineHeight: 20,
-    marginBottom: spacing.lg,
   },
   cardActions: {
     flexDirection: 'row',

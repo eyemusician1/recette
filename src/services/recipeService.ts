@@ -10,6 +10,7 @@ export type SavedRecipe = {
   difficulty: string;
   ingredients: string[];
   steps?: string[];
+  stepsByLanguage?: Record<string, string[]>;
   summary: string;
   imageUri?: string;
   savedAt?: any;
@@ -166,13 +167,19 @@ export async function cacheSavedRecipeSteps(
   uid: string,
   recipeId: string,
   steps: string[],
+  language?: string,
 ) {
   try {
+    const payload: any = {
+      steps,
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    };
+    if (language) {
+      payload[`stepsByLanguage.${language}`] = steps;
+    }
+
     await userDoc(uid).collection('savedRecipes').doc(recipeId).set(
-      {
-        steps,
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      },
+      payload,
       {merge: true},
     );
     return {success: true};

@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -13,7 +13,7 @@ import auth from '@react-native-firebase/auth';
 import Ion from 'react-native-vector-icons/Ionicons';
 import {palette, spacing, typography} from '../tokens';
 import {AlertDialog} from '../components/AlertDialog';
-import {signOut, updateDietaryPreferences, getUserProfile, resetDiscoverWelcome} from '../services/authService';
+import {signOut, updateDietaryPreferences, getUserProfile, updateTtsSettings, TtsLanguage} from '../services/authService';
 import {getSavedRecipes, getCookHistory} from '../services/recipeService';
 
 // ─── Available dietary options ────────────────────────────────────────────────
@@ -46,7 +46,7 @@ function RowItem({
       </Text>
       <View style={styles.rowRight}>
         {value ? <Text style={styles.rowValue}>{value}</Text> : null}
-        {!danger && (
+        {onPress && !danger && (
           <Ion name="chevron-forward" size={14} color={palette.muted} />
         )}
       </View>
@@ -130,7 +130,7 @@ function DietaryModal({
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-export function ProfileScreen({navigation}: any) {
+export function ProfileScreen() {
   const user = auth().currentUser;
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
@@ -141,11 +141,22 @@ export function ProfileScreen({navigation}: any) {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [ttsLanguage, setTtsLanguage] = useState<TtsLanguage>('en-US');
+  const [savingTts, setSavingTts] = useState(false);
+  const [langToastText, setLangToastText] = useState('');
+  const [showLangToast, setShowLangToast] = useState(false);
+  const langToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!user) {return;}
     loadStats();
     loadProfile();
+
+    return () => {
+      if (langToastTimerRef.current) {
+        clearTimeout(langToastTimerRef.current);
+      }
+    };
   }, []);
 
   const loadStats = async () => {
@@ -171,8 +182,34 @@ export function ProfileScreen({navigation}: any) {
       if (profile?.dietaryPreferences) {
         setDietaryPrefs(profile.dietaryPreferences);
       }
+      if (profile?.ttsLanguage === 'tl-PH' || profile?.ttsLanguage === 'en-US') {
+        setTtsLanguage(profile.ttsLanguage);
+      }
     } catch (e) {
       console.warn('Failed to load profile', e);
+    }
+  };
+
+  const handleToggleTtsLanguage = async () => {
+    if (!user || savingTts) {return;}
+    const next: TtsLanguage = ttsLanguage === 'en-US' ? 'tl-PH' : 'en-US';
+    setTtsLanguage(next);
+    setSavingTts(true);
+    try {
+      await updateTtsSettings(user.uid, {ttsLanguage: next, ttsVoiceGender: 'male'});
+      setLangToastText(next === 'tl-PH' ? 'Language switched to Tagalog.' : 'Language switched to English.');
+      setShowLangToast(true);
+      if (langToastTimerRef.current) {
+        clearTimeout(langToastTimerRef.current);
+      }
+      langToastTimerRef.current = setTimeout(() => {
+        setShowLangToast(false);
+      }, 2200);
+    } catch (e) {
+      setTtsLanguage(ttsLanguage);
+      console.warn('Failed to save TTS settings', e);
+    } finally {
+      setSavingTts(false);
     }
   };
 
@@ -193,16 +230,6 @@ export function ProfileScreen({navigation}: any) {
   const handleSignOut = async () => {
     setShowSignOutDialog(false);
     await signOut();
-  };
-
-  const handleShowTipsAgain = async () => {
-    if (!user) {return;}
-    try {
-      await resetDiscoverWelcome(user.uid);
-      navigation.navigate('home');
-    } catch (e) {
-      console.warn('Failed to reset onboarding tips', e);
-    }
   };
 
   return (
@@ -276,9 +303,12 @@ export function ProfileScreen({navigation}: any) {
       {/* ── Preferences ── */}
       <Text style={styles.groupLabel}>Preferences</Text>
       <View style={styles.group}>
-        <RowItem label="Language" value="English" onPress={() => {}} />
+        <RowItem
+          label="Language"
+          value={savingTts ? 'Saving...' : ttsLanguage === 'en-US' ? 'English' : 'Tagalog'}
+          onPress={handleToggleTtsLanguage}
+        />
         <View style={styles.divider} />
-        <RowItem label="Show App Tips Again" onPress={handleShowTipsAgain} />
       </View>
 
       {/* ── About ── */}
@@ -357,7 +387,7 @@ export function ProfileScreen({navigation}: any) {
               <View style={styles.aboutDivider} />
 
               <Text style={styles.aboutLabel}>Contact</Text>
-              <Text style={styles.aboutBody}>09078740622</Text>
+              <Text style={styles.aboutBody}>bayononsayr@gmail.com</Text>
             </ScrollView>
             <View style={styles.modalActions}>
               <Pressable
@@ -387,6 +417,15 @@ export function ProfileScreen({navigation}: any) {
         onConfirm={handleSignOut}
         onCancel={() => setShowSignOutDialog(false)}
       />
+
+      <Modal visible={showLangToast} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.toastOverlay} pointerEvents="none">
+          <View style={styles.toastCard}>
+            <Ion name="checkmark-circle" size={16} color={palette.terracotta} />
+            <Text style={styles.toastText}>{langToastText}</Text>
+          </View>
+        </View>
+      </Modal>
 
     </ScrollView>
   );
@@ -708,5 +747,30 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: palette.white,
     letterSpacing: 0.5,
+  },
+
+  // Toast
+  toastOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xxl,
+  },
+  toastCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  toastText: {
+    fontFamily: typography.cormorant,
+    fontSize: 16,
+    color: palette.body,
+    flexShrink: 1,
   },
 });

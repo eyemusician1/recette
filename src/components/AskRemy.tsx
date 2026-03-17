@@ -1,6 +1,7 @@
 import React, {useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -11,11 +12,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Ion from 'react-native-vector-icons/Ionicons';
 import {palette, spacing, typography} from '../tokens';
 import {ENV} from '../env';
+import {TtsLanguage} from '../services/authService';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.3-70b-versatile';
+const REMY_LOGO = require('../../assets/images/remy.png');
 
 type ChatMessage = {
   role: 'remy' | 'user';
@@ -27,6 +31,7 @@ type Props = {
   onClose: () => void;
   recipeTitle?: string;
   currentStepInstruction?: string;
+  language?: TtsLanguage;
 };
 
 async function askGroq(messages: {role: string; content: string}[]) {
@@ -36,13 +41,45 @@ async function askGroq(messages: {role: string; content: string}[]) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${ENV.GROQ_API_KEY}`,
     },
-    body: JSON.stringify({model: MODEL, max_tokens: 1000, messages}),
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 900,
+      temperature: 0.35,
+      messages,
+    }),
   });
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? '';
 }
 
-export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}: Props) {
+function buildRemySystemPrompt(language: TtsLanguage, recipeTitle?: string, currentStepInstruction?: string) {
+  const recipeContext = recipeTitle
+    ? `Recipe context: The user is cooking "${recipeTitle}".`
+    : 'Recipe context: No recipe title provided yet.';
+  const stepContext = currentStepInstruction
+    ? `Current step context: ${currentStepInstruction}`
+    : 'Current step context: Not provided.';
+  const languageRule = language === 'tl-PH'
+    ? 'Respond in natural conversational Tagalog (Filipino). Avoid English unless user explicitly asks for English.'
+    : 'Respond in clear conversational English.';
+
+  return [
+    'You are Remy, a calm and practical chef coach helping a home cook in real time.',
+    recipeContext,
+    stepContext,
+    languageRule,
+    'Response rules:',
+    '1) Keep replies concise and actionable in 2-5 short sentences.',
+    '2) Prefer concrete guidance with quantities, timing, heat level, and visual cues when useful.',
+    '3) If the question is unclear, ask one brief clarifying question before guessing.',
+    '4) Suggest safe food-handling advice when relevant (raw meat, eggs, storage, temperature).',
+    '5) If suggesting substitutions, provide one best option first, then one backup if needed.',
+    '6) Use plain conversational language suitable for text-to-speech.',
+    '7) Do not use markdown tables or code blocks.',
+  ].join('\n');
+}
+
+export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction, language = 'en-US'}: Props) {
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -56,19 +93,27 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
     setLoading(true);
 
     try {
-      const context = recipeTitle
-        ? `We're cooking "${recipeTitle}". ${currentStepInstruction ? `Current step: ${currentStepInstruction}.` : ''}`
-        : '';
+      const recentHistory = messages.slice(-6).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.text,
+      }));
+
       const reply = await askGroq([
         {
           role: 'system',
-          content: `You are Rémy, a warm AI chef assistant. ${context} Answer questions helpfully and concisely.`,
+          content: buildRemySystemPrompt(language, recipeTitle, currentStepInstruction),
         },
+        ...recentHistory,
         {role: 'user', content: userMsg},
       ]);
       setMessages(m => [...m, {role: 'remy', text: reply}]);
     } catch {
-      setMessages(m => [...m, {role: 'remy', text: 'Sorry, I had trouble answering that. Try again!'}]);
+      setMessages(m => [...m, {
+        role: 'remy',
+        text: language === 'tl-PH'
+          ? 'Pasensya na, nagkaproblema ako sa pagsagot. Pakisubukan ulit!'
+          : 'Sorry, I had trouble answering that. Try again!',
+      }]);
     } finally {
       setLoading(false);
     }
@@ -91,6 +136,7 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.handle} />
+            <Image source={REMY_LOGO} style={styles.headerAvatar} resizeMode="contain" />
             <Text style={styles.title}>Ask Rémy</Text>
             <Text style={styles.subtitle}>Your AI chef is here to help</Text>
           </View>
@@ -105,7 +151,9 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
 
             {messages.length === 0 && (
               <Text style={styles.emptyText}>
-                Ask me anything about this recipe — substitutions, techniques, timing...
+                {language === 'tl-PH'
+                  ? 'Magtanong ka tungkol sa recipe na ito — pamalit na sangkap, techniques, timing...'
+                  : 'Ask me anything about this recipe — substitutions, techniques, timing...'}
               </Text>
             )}
 
@@ -116,7 +164,7 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
                   styles.bubble,
                   msg.role === 'user' ? styles.bubbleUser : styles.bubbleRemy,
                 ]}>
-                {msg.role === 'remy' && <View style={styles.remyDot} />}
+                {msg.role === 'remy' && <Image source={REMY_LOGO} style={styles.remyAvatar} resizeMode="contain" />}
                 <Text style={[styles.bubbleText, msg.role === 'user' && styles.bubbleTextUser]}>
                   {msg.text}
                 </Text>
@@ -125,7 +173,7 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
 
             {loading && (
               <View style={[styles.bubble, styles.bubbleRemy]}>
-                <View style={styles.remyDot} />
+                <Image source={REMY_LOGO} style={styles.remyAvatar} resizeMode="contain" />
                 <ActivityIndicator color={palette.terracotta} size="small" style={{padding: spacing.sm}} />
               </View>
             )}
@@ -136,7 +184,7 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
           <View style={styles.inputRow}>
             <TextInput
               style={styles.input}
-              placeholder="Ask something..."
+              placeholder={language === 'tl-PH' ? 'Magtanong...' : 'Ask something...'}
               placeholderTextColor={palette.muted}
               value={chatInput}
               onChangeText={setChatInput}
@@ -152,7 +200,12 @@ export function AskRemy({visible, onClose, recipeTitle, currentStepInstruction}:
                 pressed && styles.sendBtnPressed,
                 (!chatInput.trim() || loading) && styles.sendBtnDisabled,
               ]}>
-              <View style={styles.sendArrow} />
+              <Ion
+                name="send"
+                size={18}
+                color={chatInput.trim() && !loading ? palette.white : palette.muted}
+                style={styles.sendIcon}
+              />
             </Pressable>
           </View>
 
@@ -196,6 +249,12 @@ const styles = StyleSheet.create({
     backgroundColor: palette.border,
     marginBottom: spacing.md,
   },
+  headerAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginBottom: spacing.sm,
+  },
   title: {
     fontFamily: typography.serif,
     fontSize: 23,
@@ -231,12 +290,11 @@ const styles = StyleSheet.create({
   },
   bubbleRemy: {alignSelf: 'flex-start'},
   bubbleUser: {alignSelf: 'flex-end', flexDirection: 'row-reverse'},
-  remyDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: palette.terracotta,
-    marginTop: spacing.md,
+  remyAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginTop: 4,
     flexShrink: 0,
   },
   bubbleText: {
@@ -290,15 +348,7 @@ const styles = StyleSheet.create({
   },
   sendBtnPressed: {opacity: 0.85},
   sendBtnDisabled: {backgroundColor: palette.surface},
-  sendArrow: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 7,
-    borderBottomWidth: 5,
-    borderTopWidth: 5,
-    borderLeftColor: palette.white,
-    borderBottomColor: 'transparent',
-    borderTopColor: 'transparent',
-    marginLeft: 3,
+  sendIcon: {
+    marginLeft: 1,
   },
 });

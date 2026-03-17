@@ -10,9 +10,10 @@ import {palette, spacing, typography} from '../tokens';
 
 interface Props {
   onGoogleSignIn?: () => void;
+  isSigningIn?: boolean;
 }
 
-export function LoginScreen({onGoogleSignIn}: Props) {
+export function LoginScreen({onGoogleSignIn, isSigningIn = false}: Props) {
   return (
     <ImageBackground
       source={require('../../assets/images/login-bg.jpg')}
@@ -26,13 +27,18 @@ export function LoginScreen({onGoogleSignIn}: Props) {
         <Text style={styles.tagline}>Cook alongside with the best AI chef.</Text>
 
         <Pressable
+          disabled={isSigningIn}
           onPress={() => {
             console.log('pressed - calling onGoogleSignIn');
             onGoogleSignIn?.();
           }}
-          style={({pressed}) => [styles.btn, pressed && styles.btnPressed]}>
+          style={({pressed}) => [
+            styles.btn,
+            pressed && styles.btnPressed,
+            isSigningIn && styles.btnDisabled,
+          ]}>
           <View style={styles.btnShine} />
-          <Text style={styles.btnLabel}>Get Started</Text>
+          <Text style={styles.btnLabel}>{isSigningIn ? 'Signing In...' : 'Get Started'}</Text>
         </Pressable>
       </View>
 
@@ -105,6 +111,9 @@ const styles = StyleSheet.create({
   btnPressed: {
     backgroundColor: 'rgba(245,232,200,0.2)',
     transform: [{scale: 0.97}],
+  },
+  btnDisabled: {
+    opacity: 0.7,
   },
   btnShine: {
     position: 'absolute',

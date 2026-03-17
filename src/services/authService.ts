@@ -1,6 +1,10 @@
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
+import {Platform} from 'react-native';
+
+export type TtsLanguage = 'en-US' | 'tl-PH';
+export type TtsVoiceGender = 'male' | 'female';
 
 export function configureGoogleSignIn() {
   GoogleSignin.configure({
@@ -75,6 +79,8 @@ export async function upsertUserProfile(user: any) {
       email: user.email ?? '',
       photoURL: user.photoURL ?? '',
       dietaryPreferences: [],
+      ttsLanguage: 'en-US',
+      ttsVoiceGender: 'male',
       hasSeenDiscoverWelcome: false,
       createdAt: firestore.FieldValue.serverTimestamp(),
       updatedAt: firestore.FieldValue.serverTimestamp(),
@@ -91,17 +97,22 @@ export async function upsertUserProfile(user: any) {
 
 export async function getUserProfile(uid: string) {
   const snap = await firestore().collection('users').doc(uid).get();
-  const exists =
-    typeof (snap as any).exists === 'function'
-      ? (snap as any).exists()
-      : Boolean((snap as any).exists);
-  return exists ? snap.data() : null;
+  return snap.exists() ? snap.data() : null;
 }
 
 export async function updateDietaryPreferences(uid: string, prefs: string[]) {
-  await firestore().collection('users').doc(uid).set({
-    uid,
+  await firestore().collection('users').doc(uid).update({
     dietaryPreferences: prefs,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+export async function updateTtsSettings(
+  uid: string,
+  settings: {ttsLanguage?: TtsLanguage; ttsVoiceGender?: TtsVoiceGender},
+) {
+  await firestore().collection('users').doc(uid).set({
+    ...settings,
     updatedAt: firestore.FieldValue.serverTimestamp(),
   }, {merge: true});
 }
@@ -114,10 +125,28 @@ export async function markDiscoverWelcomeSeen(uid: string) {
   }, {merge: true});
 }
 
-export async function resetDiscoverWelcome(uid: string) {
-  await firestore().collection('users').doc(uid).set({
-    uid,
-    hasSeenDiscoverWelcome: false,
-    updatedAt: firestore.FieldValue.serverTimestamp(),
-  }, {merge: true});
+export function isHuaweiFamilyDevice() {
+  if (Platform.OS !== 'android') {
+    return false;
+  }
+
+  const constants: any = Platform.constants ?? {};
+  const brand = (constants.Brand ?? constants.brand ?? '').toString().toLowerCase();
+  const manufacturer = (constants.Manufacturer ?? constants.manufacturer ?? '').toString().toLowerCase();
+  return (
+    brand.includes('huawei') ||
+    manufacturer.includes('huawei') ||
+    brand.includes('honor') ||
+    manufacturer.includes('honor')
+  );
+}
+
+export async function signInAnonymously() {
+  try {
+    const result = await auth().signInAnonymously();
+    await upsertUserProfile(result.user);
+    return {success: true, user: result.user};
+  } catch (error: any) {
+    return {success: false, error: error.message};
+  }
 }

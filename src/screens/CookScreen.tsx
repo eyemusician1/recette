@@ -1,12 +1,14 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from 'react-native';
 import {palette, spacing, typography} from '../tokens';
@@ -15,8 +17,10 @@ import Ion from 'react-native-vector-icons/Ionicons';
 import {ENV} from '../env';
 import auth from '@react-native-firebase/auth';
 import {addCookHistory, cacheSavedRecipeSteps} from '../services/recipeService';
+import {getUserProfile, TtsLanguage} from '../services/authService';
 import {AskRemy} from '../components/AskRemy';
 import {AlertDialog} from '../components/AlertDialog';
+import {useIsFocused} from '@react-navigation/native';
 
 const GROQ_API_KEY = ENV.GROQ_API_KEY;
 
@@ -31,6 +35,7 @@ type Recipe = {
   difficulty: string;
   ingredients: string[];
   steps?: string[];
+  stepsByLanguage?: Record<string, string[]>;
   summary: string;
 };
 
@@ -56,6 +61,61 @@ function stopSpeaking() {
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const MODEL = 'llama-3.3-70b-versatile';
+const REMY_LOGO = require('../../assets/images/remy.png');
+
+function isTagalog(language: TtsLanguage) {
+  return language === 'tl-PH';
+}
+
+function getAiLanguageInstruction(language: TtsLanguage) {
+  return isTagalog(language)
+    ? 'Respond in natural conversational Tagalog (Filipino). Avoid English unless the user asks for it.'
+    : 'Respond in clear conversational English.';
+}
+
+function getLanguageCandidates(language: TtsLanguage): string[] {
+  return language === 'tl-PH' ? ['tl-PH', 'fil-PH', 'en-US'] : ['en-US'];
+}
+
+function scoreMaleVoice(voice: any): number {
+  const text = `${voice?.name ?? ''} ${voice?.id ?? ''}`.toLowerCase();
+  let score = 0;
+  if (text.includes('male') || text.includes('man') || text.includes('guy')) {score += 6;}
+  if (text.includes('female') || text.includes('woman') || text.includes('girl')) {score -= 6;}
+  if (text.includes('local')) {score += 2;}
+  if (voice?.networkConnectionRequired === false) {score += 1;}
+  if (voice?.notInstalled) {score -= 100;}
+  return score;
+}
+
+async function applyTtsPreferences(language: TtsLanguage) {
+  const candidates = getLanguageCandidates(language);
+  let appliedLanguage = 'en-US';
+
+  for (const candidate of candidates) {
+    try {
+      await Tts.setDefaultLanguage(candidate);
+      appliedLanguage = candidate;
+      break;
+    } catch {
+      // Try next language candidate.
+    }
+  }
+
+  try {
+    const voices = await Tts.voices();
+    const forLanguage = voices
+      .filter(v => !v?.notInstalled)
+      .filter(v => String(v?.language ?? '').toLowerCase().startsWith(appliedLanguage.slice(0, 2).toLowerCase()));
+
+    const sorted = forLanguage.sort((a, b) => scoreMaleVoice(b) - scoreMaleVoice(a));
+    if (sorted[0]?.id) {
+      await Tts.setDefaultVoice(sorted[0].id);
+    }
+  } catch {
+    // Keep default engine voice if a male voice cannot be selected.
+  }
+}
 
 function normalizeSteps(input: string[]): Step[] {
   return input
@@ -63,26 +123,71 @@ function normalizeSteps(input: string[]): Step[] {
     .filter(step => step.instruction.length > 0);
 }
 
+function formatSuggestionsForTts(text: string): string {
+  return text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line =>
+      line
+        .replace(/^[\u2022\-*\d.)\s]+/, '')
+        .replace(/\s*(->|→)\s*/g, ' instead of using ')
+        .replace(/^you can use this:\s*/i, '')
+        .replace(/^instead of this:\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .map(line => {
+      if (line.length === 0) {return line;}
+      const sentence = line.charAt(0).toUpperCase() + line.slice(1);
+      return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+    })
+    .join(' ');
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-async function askGroq(messages: {role: string; content: string}[]) {
+async function askGroq(
+  messages: {role: string; content: string}[],
+  options?: {maxTokens?: number; temperature?: number},
+) {
   const res = await fetch(GROQ_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${GROQ_API_KEY}`,
     },
-    body: JSON.stringify({model: MODEL, max_tokens: 1000, messages}),
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: options?.maxTokens ?? 900,
+      temperature: options?.temperature ?? 0.35,
+      messages,
+    }),
   });
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? '';
 }
 
 // ─── Timer Component ──────────────────────────────────────────────────────────
-function StepTimer({seconds}: {seconds: number}) {
+function StepTimer({
+  seconds,
+  muted,
+  language,
+  onFinished,
+}: {
+  seconds: number;
+  muted: boolean;
+  language: TtsLanguage;
+  onFinished: (title: string, message: string) => void;
+}) {
   const [remaining, setRemaining] = useState(seconds);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const doneTitle = isTagalog(language) ? 'Tapos na ang timer' : 'Timer finished';
+  const doneSubtitle = isTagalog(language)
+    ? 'Tapos na ang step na ito. Puwede ka nang magpatuloy sa susunod.'
+    : 'This step is done. You can continue to the next step.';
 
   useEffect(() => {
     if (running && remaining > 0) {
@@ -92,6 +197,17 @@ function StepTimer({seconds}: {seconds: number}) {
             clearInterval(interval.current!);
             setRunning(false);
             setDone(true);
+            try {
+              Vibration.vibrate([0, 300, 200, 300]);
+            } catch {
+              // Ignore vibration failures so timer completion still works.
+            }
+            if (!muted) {
+              Tts.speak(isTagalog(language)
+                ? 'Tapos na ang timer. Tapos na ang hakbang na ito.'
+                : 'Timer is up. This cooking step is done.');
+            }
+            onFinished(doneTitle, doneSubtitle);
             return 0;
           }
           return r - 1;
@@ -99,7 +215,7 @@ function StepTimer({seconds}: {seconds: number}) {
       }, 1000);
     }
     return () => clearInterval(interval.current!);
-  }, [running]);
+  }, [running, muted, language, onFinished, doneTitle, doneSubtitle]);
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
@@ -184,6 +300,7 @@ const timerStyles = StyleSheet.create({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export function CookScreen({route, navigation}: any) {
   const recipe: Recipe | undefined = route?.params?.recipe;
+  const isFocused = useIsFocused();
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [introText, setIntroText] = useState('');
@@ -195,21 +312,80 @@ export function CookScreen({route, navigation}: any) {
   const [chatOpen, setChatOpen] = useState(false);
   const [finishDialogOpen, setFinishDialogOpen] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [contentLanguage, setContentLanguage] = useState<TtsLanguage>('en-US');
   const [subLoading, setSubLoading] = useState(false);
   const [subSuggestions, setSubSuggestions] = useState('');
+  const [timerToast, setTimerToast] = useState<{title: string; message: string} | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const clearCookOnNextBlurRef = useRef(false);
+  const timerToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetCookSession = (clearRouteParam: boolean) => {
+    stopSpeaking();
+    setPhase('intro');
+    setIntroText('');
+    setIntroLoading(false);
+    setSteps([]);
+    setStepsLoading(false);
+    setCurrentStep(0);
+    setChecked([]);
+    setChatOpen(false);
+    setFinishDialogOpen(false);
+    setSubLoading(false);
+    setSubSuggestions('');
+    setTimerToast(null);
+    if (timerToastTimerRef.current) {
+      clearTimeout(timerToastTimerRef.current);
+    }
+    if (clearRouteParam) {
+      navigation.setParams({recipe: undefined});
+    }
+  };
 
   // Reset all state when recipe changes + setup TTS once
   useEffect(() => {
-    Tts.setDefaultLanguage('en-US');
-    Tts.setDefaultVoice('en-us-x-iom-local');
     Tts.setDefaultRate(0.5);
     Tts.setDefaultPitch(0.9);
 
     return () => {
+      if (timerToastTimerRef.current) {
+        clearTimeout(timerToastTimerRef.current);
+      }
       stopSpeaking();
     };
   }, []);
+
+  useEffect(() => {
+    const syncTtsFromProfile = async () => {
+      const uid = auth().currentUser?.uid;
+      if (!uid) {
+        await applyTtsPreferences('en-US');
+        return;
+      }
+      try {
+        const profile = await getUserProfile(uid);
+        const language: TtsLanguage = profile?.ttsLanguage === 'tl-PH' ? 'tl-PH' : 'en-US';
+        setContentLanguage(language);
+        await applyTtsPreferences(language);
+      } catch {
+        setContentLanguage('en-US');
+        await applyTtsPreferences('en-US');
+      }
+    };
+
+    if (isFocused) {
+      void syncTtsFromProfile();
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
+    if (isFocused) {return;}
+    stopSpeaking();
+    if (clearCookOnNextBlurRef.current) {
+      clearCookOnNextBlurRef.current = false;
+      resetCookSession(true);
+    }
+  }, [isFocused, navigation]);
 
   // Reset and reload whenever the recipe changes
   const recipeId = recipe?.id ?? recipe?.title ?? '';
@@ -227,21 +403,47 @@ export function CookScreen({route, navigation}: any) {
     loadIntro();
   }, [recipeId]);
 
+  useEffect(() => {
+    if (!recipe || !isFocused) {return;}
+    setSubSuggestions('');
+    if (phase === 'steps') {
+      setCurrentStep(0);
+      loadSteps();
+      return;
+    }
+    loadIntro();
+  }, [contentLanguage]);
+
   const loadIntro = async () => {
     if (!recipe) return;
     setIntroLoading(true);
     try {
       const text = await askGroq([{
         role: 'system',
-        content: 'You are Rémy, a warm and encouraging AI chef. You speak in a friendly, enthusiastic tone. Keep responses concise.',
+        content: `You are Rémy, a warm and encouraging chef coach.
+Write clearly for a home cook.
+Keep the intro concise, practical, and motivating.
+Do not use markdown, lists, or symbols.
+Use plain conversational sentences suitable for text-to-speech.
+${getAiLanguageInstruction(contentLanguage)}`,
       }, {
         role: 'user',
-        content: `I'm about to cook "${recipe.title}" (${recipe.cuisine}, ${recipe.duration}, ${recipe.difficulty}). Give me a short, exciting intro — what this dish is about, what makes it special, and one key tip. 2-3 sentences max.`,
-      }]);
+        content: `I am about to cook "${recipe.title}".
+Cuisine: ${recipe.cuisine}.
+Estimated duration: ${recipe.duration}.
+Difficulty: ${recipe.difficulty}.
+
+Give me exactly 3 short sentences:
+Sentence 1: what this dish is and why it is great.
+Sentence 2: one key success tip for this specific dish.
+Sentence 3: a short confidence boost before cooking starts.`,
+      }], {maxTokens: 220, temperature: 0.45});
       setIntroText(text);
       speak(text, muted);
     } catch {
-      const fallback = `Welcome! Today we're making ${recipe?.title ?? 'something delicious'}. Let's check your ingredients first, then I'll walk you through every step.`;
+      const fallback = isTagalog(contentLanguage)
+        ? `Maligayang pagdating! Ngayon lulutuin natin ang ${recipe?.title ?? 'masarap na pagkain'}. I-check muna natin ang mga sangkap, pagkatapos gagabayan kita sa bawat hakbang.`
+        : `Welcome! Today we're making ${recipe?.title ?? 'something delicious'}. Let's check your ingredients first, then I'll walk you through every step.`;
       setIntroText(fallback);
       speak(fallback, muted);
     } finally {
@@ -259,7 +461,10 @@ export function CookScreen({route, navigation}: any) {
   // Speak done + save cook history when phase changes to done
   useEffect(() => {
     if (phase === 'done' && recipe) {
-      speak(`Bon appétit! You've finished cooking ${recipe.title}. Enjoy your meal!`, muted);
+      const doneLine = isTagalog(contentLanguage)
+        ? `Tapos na ang pagluluto ng ${recipe.title}. Kain na at mag-enjoy!`
+        : `Bon appétit! You've finished cooking ${recipe.title}. Enjoy your meal!`;
+      speak(doneLine, muted);
       const user = auth().currentUser;
       if (user) {
         addCookHistory({
@@ -270,7 +475,7 @@ export function CookScreen({route, navigation}: any) {
         }).catch(e => console.warn('Failed to save cook history:', e));
       }
     }
-  }, [phase, recipe, muted]);
+  }, [phase, recipe, muted, contentLanguage]);
 
   const loadSteps = async () => {
     if (!recipe) return;
@@ -278,28 +483,58 @@ export function CookScreen({route, navigation}: any) {
     try {
       const text = await askGroq([{
         role: 'system',
-        content: 'You are a professional chef assistant. Return only raw JSON, no markdown.',
+        content: `You are a professional chef assistant.
+Return only raw JSON with no markdown and no extra commentary.
+Every step must be concrete, sequential, and safe for a home cook.
+      Use direct action verbs and include specific cues when to move to the next step.
+      ${getAiLanguageInstruction(contentLanguage)}
+      Write every "instruction" value in ${isTagalog(contentLanguage) ? 'Tagalog' : 'English'}.`,
       }, {
         role: 'user',
-        content: `Create detailed cooking steps for "${recipe.title}". Return a JSON array of steps:
-[{"index": 1, "instruction": "step text here", "timerSeconds": 300}]
-timerSeconds is optional — only include it if the step requires waiting (boiling, simmering, baking etc). Be specific and clear. 5-8 steps.`,
-      }]);
+        content: `Create detailed cooking steps for this recipe:
+Title: ${recipe.title}
+Cuisine: ${recipe.cuisine}
+Duration target: ${recipe.duration}
+Difficulty: ${recipe.difficulty}
+Ingredients:
+${recipe.ingredients.map(ing => `- ${ing}`).join('\n')}
+
+Return ONLY a JSON array with this exact schema:
+[{"index":1,"instruction":"...","timerSeconds":300}]
+
+Rules:
+1) Return 6 to 10 steps.
+2) "index" must be sequential starting at 1.
+3) "instruction" must be one clear sentence, plain words, no numbering prefix.
+4) Add "timerSeconds" only when there is actual waiting time (simmer, boil, bake, rest).
+5) Include practical cues such as heat level, texture, color, smell, or doneness where useful.
+6) Keep output valid JSON only.`,
+      }], {maxTokens: 1200, temperature: 0.3});
       const clean = text.replace(/```json|```/g, '').trim();
-      const parsed: Step[] = JSON.parse(clean);
+      const parsedRaw: Step[] = JSON.parse(clean);
+      const parsed = parsedRaw
+        .filter(step => typeof step?.instruction === 'string' && step.instruction.trim().length > 0)
+        .map((step, idx) => ({
+          index: idx + 1,
+          instruction: String(step.instruction).trim().replace(/^\d+[.)]\s*/, ''),
+          timerSeconds: typeof step.timerSeconds === 'number' && step.timerSeconds > 0
+            ? Math.round(step.timerSeconds)
+            : undefined,
+        }));
       setSteps(parsed);
       const user = auth().currentUser;
       if (user && recipe.id) {
         const stepText = parsed.map(step => step.instruction).filter(Boolean);
         if (stepText.length > 0) {
-          await cacheSavedRecipeSteps(user.uid, recipe.id, stepText);
+          await cacheSavedRecipeSteps(user.uid, recipe.id, stepText, contentLanguage);
         }
       }
       if (parsed.length > 0) {
         speak(parsed[0].instruction, muted);
       }
     } catch {
-      const cached = normalizeSteps(recipe.steps ?? []);
+      const languageCached = recipe.stepsByLanguage?.[contentLanguage] ?? [];
+      const cached = normalizeSteps(languageCached.length > 0 ? languageCached : (recipe.steps ?? []));
       if (cached.length > 0) {
         setSteps(cached);
         speak(cached[0].instruction, muted);
@@ -339,23 +574,23 @@ timerSeconds is optional — only include it if the step requires waiting (boili
     try {
       const text = await askGroq([{
         role: 'system',
-        content: 'You are Rémy, a helpful AI chef. Be concise and practical.',
+        content: `You are Rémy, a helpful AI chef. Be concise and practical. ${getAiLanguageInstruction(contentLanguage)}`,
       }, {
         role: 'user',
         content: `I am making "${recipe?.title}" but I am missing: ${missing.join(', ')}. For each missing ingredient, suggest a practical substitute I might already have at home.
 Use a friendly, conversational tone like a real person helping me cook.
-Each line must start with either:
-"You can use this: ..." or "Instead of this: ..."
-Then include the missing ingredient, the substitute, and one short reason it works.
-Example style:
-• You can use this: buttermilk -> milk + a little vinegar. It gives the same tang.
-• Instead of this: fresh parsley -> dried parsley. Use less since it's stronger.
-Keep it brief.`,
+Write only short, complete sentences with plain words.
+Do not use bullet points, arrows, symbols, abbreviations, or list markers.
+For each item, clearly say the missing ingredient, a substitute, and one short reason it works.
+Keep it brief and natural for text-to-speech.`,
       }]);
-      setSubSuggestions(text);
-      speak(text, muted);
+      const formatted = formatSuggestionsForTts(text);
+      setSubSuggestions(formatted);
+      speak(formatted, muted);
     } catch {
-      setSubSuggestions('Sorry, could not get suggestions. Please try again.');
+      setSubSuggestions(isTagalog(contentLanguage)
+        ? 'Pasensya na, hindi ako nakapagbigay ng mungkahi. Pakisubukan ulit.'
+        : 'Sorry, could not get suggestions. Please try again.');
     } finally {
       setSubLoading(false);
     }
@@ -371,12 +606,27 @@ Keep it brief.`,
     setPhase('done');
   };
 
+  const showTimerToast = (title: string, message: string) => {
+    setTimerToast({title, message});
+    if (timerToastTimerRef.current) {
+      clearTimeout(timerToastTimerRef.current);
+    }
+    timerToastTimerRef.current = setTimeout(() => {
+      setTimerToast(null);
+    }, 3000);
+  };
+
   // ── No recipe passed ─────────────────────────────────────────────────────
   if (!recipe) {
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyTitle}>No recipe selected</Text>
         <Text style={styles.emptySub}>Search for a recipe on Discover and tap "Start Cooking".</Text>
+        <Pressable
+          onPress={() => navigation.navigate('home')}
+          style={({pressed}) => [styles.primaryBtn, styles.emptyCtaBtn, pressed && styles.primaryBtnPressed]}>
+          <Text style={[styles.primaryBtnText, styles.emptyCtaText]}>Go to Discover</Text>
+        </Pressable>
       </View>
     );
   }
@@ -487,7 +737,7 @@ Keep it brief.`,
           {subSuggestions !== '' && (
             <View style={styles.subCard}>
               <View style={styles.subCardHeader}>
-                <View style={styles.remyDot} />
+                <Image source={REMY_LOGO} style={styles.subCardAvatar} resizeMode="contain" />
                 <Text style={styles.subCardTitle}>Rémy's Suggestions</Text>
               </View>
               <Text style={styles.subCardText}>{subSuggestions}</Text>
@@ -554,7 +804,14 @@ Keep it brief.`,
               <>
                 <View style={styles.stepCard}>
                   <Text style={styles.stepText}>{step.instruction}</Text>
-                  {step.timerSeconds && <StepTimer seconds={step.timerSeconds} />}
+                  {step.timerSeconds && (
+                    <StepTimer
+                      seconds={step.timerSeconds}
+                      muted={muted}
+                      language={contentLanguage}
+                      onFinished={showTimerToast}
+                    />
+                  )}
                 </View>
 
                 <View style={styles.stepNav}>
@@ -583,15 +840,28 @@ Keep it brief.`,
         <Pressable
           onPress={() => setChatOpen(true)}
           style={({pressed}) => [styles.fab, pressed && styles.fabPressed]}>
-          <View style={styles.fabDot} />
+          <Image source={REMY_LOGO} style={styles.fabAvatar} resizeMode="contain" />
           <Text style={styles.fabText}>Ask Rémy</Text>
         </Pressable>
+
+        {timerToast && (
+          <View style={styles.floatingToastWrap} pointerEvents="none">
+            <View style={styles.floatingToastCard}>
+              <Ion name="checkmark-circle" size={18} color={palette.terracotta} />
+              <View style={styles.floatingToastTextWrap}>
+                <Text style={styles.floatingToastTitle}>{timerToast.title}</Text>
+                <Text style={styles.floatingToastSub}>{timerToast.message}</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         <AskRemy
           visible={chatOpen}
           onClose={() => setChatOpen(false)}
           recipeTitle={recipe?.title}
           currentStepInstruction={steps[currentStep]?.instruction}
+          language={contentLanguage}
         />
 
         <AlertDialog
@@ -632,7 +902,10 @@ Keep it brief.`,
 
         <View style={styles.doneActions}>
           <Pressable
-            onPress={() => navigation.navigate('home')}
+            onPress={() => {
+              clearCookOnNextBlurRef.current = true;
+              navigation.navigate('home');
+            }}
             style={({pressed}) => [styles.secondaryBtn, styles.doneSecondaryBtn, pressed && styles.secondaryBtnPressed]}>
             <Text style={styles.secondaryBtnText}>Home</Text>
           </Pressable>
@@ -681,6 +954,15 @@ const styles = StyleSheet.create({
     color: palette.muted,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  emptyCtaBtn: {
+    marginTop: spacing.lg,
+    minWidth: 156,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  emptyCtaText: {
+    fontSize: 16,
   },
 
   // Shared phase layout
@@ -942,17 +1224,56 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     transform: [{scale: 0.97}],
   },
-  fabDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: palette.terracotta,
+  fabAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
   },
   fabText: {
     fontFamily: typography.cormorant,
     fontSize: 17,
     letterSpacing: 0.8,
     color: palette.white,
+  },
+
+  floatingToastWrap: {
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    bottom: spacing.xxxl + spacing.xxl,
+  },
+  floatingToastCard: {
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: {width: 0, height: 3},
+    elevation: 5,
+  },
+  floatingToastTextWrap: {
+    flex: 1,
+  },
+  floatingToastTitle: {
+    fontFamily: typography.cormorant,
+    fontSize: 17,
+    color: palette.ink,
+    marginBottom: 2,
+  },
+  floatingToastSub: {
+    fontFamily: typography.cormorant,
+    fontSize: 14,
+    color: palette.muted,
+    lineHeight: 18,
   },
 
 
@@ -989,6 +1310,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     marginBottom: spacing.md,
+  },
+  subCardAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   subCardTitle: {
     fontFamily: typography.cormorant,

@@ -1,9 +1,9 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useCallback, useMemo} from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   ImageBackground,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -70,6 +70,10 @@ function RecipeRow({
   );
 }
 
+const MemoRecipeRow = React.memo(RecipeRow, (prev, next) => {
+  return prev.recipe.id === next.recipe.id;
+});
+
 export function SavedScreen({navigation}: any) {
   const user = auth().currentUser;
   const [recipes, setRecipes] = useState<SavedRecipe[]>([]);
@@ -86,12 +90,12 @@ export function SavedScreen({navigation}: any) {
     return unsubscribe;
   }, []);
 
-  const handleUnsave = (recipe: SavedRecipe) => {
+  const handleUnsave = useCallback((recipe: SavedRecipe) => {
     if (!user || !recipe.id) {return;}
     setDialogRecipe(recipe);
-  };
+  }, [user]);
 
-  const confirmUnsave = async () => {
+  const confirmUnsave = useCallback(async () => {
     if (!user || !dialogRecipe?.id) {return;}
     const recipe = dialogRecipe;
     setDialogRecipe(null);
@@ -104,48 +108,69 @@ export function SavedScreen({navigation}: any) {
         return next;
       });
     }
-  };
+  }, [dialogRecipe, user]);
 
-  const handleCook = (recipe: SavedRecipe) => {
+  const handleCook = useCallback((recipe: SavedRecipe) => {
     navigation.navigate('cook', {recipe});
-  };
+  }, [navigation]);
 
-  const visibleRecipes = recipes.filter(r => !removing.has(r.id ?? ''));
+  const visibleRecipes = useMemo(() => {
+    return recipes.filter(r => !removing.has(r.id ?? ''));
+  }, [recipes, removing]);
+
+  const renderHeader = useCallback(() => (
+    <View>
+      <Text style={styles.pageTitle}>Saved</Text>
+      <Text style={styles.pageSub}>Your saved recipes</Text>
+    </View>
+  ), []);
+
+  const renderEmpty = useCallback(() => {
+    if (loading) {
+      return (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={palette.terracotta} />
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyWrap}>
+        <Text style={styles.emptyTitle}>Nothing saved yet</Text>
+        <Text style={styles.emptySub}>
+          Search for recipes on Discover and save ones you love.
+        </Text>
+      </View>
+    );
+  }, [loading]);
+
+  const renderItem = useCallback(({item}: {item: SavedRecipe}) => (
+    <MemoRecipeRow
+      recipe={item}
+      onUnsave={() => handleUnsave(item)}
+      onCook={() => handleCook(item)}
+    />
+  ), [handleCook, handleUnsave]);
+
+  const keyExtractor = useCallback((item: SavedRecipe) => item.id ?? item.title, []);
 
   return (
     <View style={styles.container}>
-      <ScrollView
+      <FlatList
+        data={loading ? [] : visibleRecipes}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        extraData={removing}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={renderEmpty}
         contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}>
-
-        <Text style={styles.pageTitle}>Saved</Text>
-        <Text style={styles.pageSub}>Your saved recipes</Text>
-
-        {loading ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator color={palette.terracotta} />
-          </View>
-        ) : visibleRecipes.length === 0 ? (
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyTitle}>Nothing saved yet</Text>
-            <Text style={styles.emptySub}>
-              Search for recipes on Discover and save ones you love.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.list}>
-            {visibleRecipes.map(recipe => (
-              <RecipeRow
-                key={recipe.id}
-                recipe={recipe}
-                onUnsave={() => handleUnsave(recipe)}
-                onCook={() => handleCook(recipe)}
-              />
-            ))}
-          </View>
-        )}
-
-      </ScrollView>
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={6}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
+        ItemSeparatorComponent={() => <View style={styles.rowGap} />}
+      />
 
       <AlertDialog
         visible={dialogRecipe !== null}
@@ -197,7 +222,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     maxWidth: 260,
   },
-  list: {gap: spacing.lg},
+  rowGap: {height: spacing.lg},
 
   // Card
   card: {
