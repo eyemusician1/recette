@@ -68,6 +68,39 @@ You've successfully run and modified your React Native App. :partying_face:
 
 If you can't get this to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
 
+## Build iOS From Windows (GitHub Actions)
+
+You can build a signed iOS IPA without a local Mac by using the GitHub Actions workflow in `.github/workflows/ios-release.yml`.
+
+1. Install GitHub CLI on Windows and log in.
+2. Run the helper script from project root to generate and set secrets:
+
+```powershell
+pwsh .\scripts\prepare-ios-gh-secrets.ps1 \
+   -P12Path C:\path\to\cert.p12 \
+   -P12Password "YOUR_P12_PASSWORD" \
+   -ProvisioningProfilePath C:\path\to\profile.mobileprovision \
+   -TeamId "YOUR_TEAM_ID" \
+   -BundleIdentifier "com.recette" \
+   -KeychainPassword "YOUR_TEMP_KEYCHAIN_PASSWORD" \
+   -SetGithubSecrets
+```
+
+3. Commit and push to GitHub.
+4. Trigger build with:
+
+```powershell
+pwsh .\scripts\trigger-ios-release.ps1 -Ref main
+```
+
+5. Open Actions in GitHub and download the `remys-ios-ipa` artifact from the latest run.
+
+If you do not want automatic secret upload, run the helper without `-SetGithubSecrets` and copy the generated files from `.ios-secrets-output` into GitHub repository secrets manually.
+
+Notes:
+- You still need an Apple Developer account for signing and TestFlight/App Store distribution.
+- If this is your first iOS release, create certificate/profile in App Store Connect + Apple Developer first.
+
 # Learn More
 
 To learn more about React Native, take a look at the following resources:

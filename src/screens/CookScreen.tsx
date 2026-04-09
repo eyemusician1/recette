@@ -48,6 +48,25 @@ type Step = {
 
 type Phase = 'intro' | 'checklist' | 'steps' | 'done';
 
+const TIMER_MIN_SECONDS = 10;
+const TIMER_MAX_SECONDS = 3 * 60 * 60;
+const WORD_NUMBERS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
+
 // ─── TTS Helper ───────────────────────────────────────────────────────────────
 function speak(text: string, muted: boolean) {
   if (muted) {return;}
@@ -120,8 +139,116 @@ async function applyTtsPreferences(language: TtsLanguage) {
 
 function normalizeSteps(input: string[]): Step[] {
   return input
-    .map((instruction, index) => ({index: index + 1, instruction: String(instruction).trim()}))
+    .map((instruction, index) => {
+      const cleanedInstruction = String(instruction).trim();
+      return {
+        index: index + 1,
+        instruction: cleanedInstruction,
+        timerSeconds: extractTimerSecondsFromInstruction(cleanedInstruction),
+      };
+    })
     .filter(step => step.instruction.length > 0);
+}
+
+function clampTimerSeconds(seconds: number): number {
+  const rounded = Math.round(seconds);
+  if (rounded < TIMER_MIN_SECONDS) {
+    return TIMER_MIN_SECONDS;
+  }
+  if (rounded > TIMER_MAX_SECONDS) {
+    return TIMER_MAX_SECONDS;
+  }
+  return rounded;
+}
+
+function toSeconds(amount: number, unit: string): number {
+  const u = unit.toLowerCase();
+  if (u.startsWith('hour') || u.startsWith('hr')) {
+    return amount * 3600;
+  }
+  if (u.startsWith('min')) {
+    return amount * 60;
+  }
+  return amount;
+}
+
+function parseAmountToken(token: string): number | undefined {
+  const numeric = Number(token);
+  if (!Number.isNaN(numeric) && Number.isFinite(numeric)) {
+    return numeric;
+  }
+  return WORD_NUMBERS[token.toLowerCase()];
+}
+
+function extractTimerSecondsFromInstruction(instruction: string): number | undefined {
+  if (!instruction) {
+    return undefined;
+  }
+
+  let text = instruction.toLowerCase();
+  text = text
+    .replace(/½/g, '0.5')
+    .replace(/¼/g, '0.25')
+    .replace(/¾/g, '0.75');
+
+  let totalSeconds = 0;
+  let matched = false;
+
+  const addSeconds = (amount: number, unit: string) => {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return;
+    }
+    totalSeconds += toSeconds(amount, unit);
+    matched = true;
+  };
+
+  const rangeRegex = /(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)\b/g;
+  text = text.replace(rangeRegex, (_m, start, end, unit) => {
+    const startNum = Number(start);
+    const endNum = Number(end);
+    if (Number.isFinite(startNum) && Number.isFinite(endNum)) {
+      // Prefer the upper bound to avoid undercooking.
+      addSeconds(Math.max(startNum, endNum), unit);
+    }
+    return ' ';
+  });
+
+  if (/half\s+(an\s+)?hour\b/.test(text)) {
+    addSeconds(0.5, 'hour');
+    text = text.replace(/half\s+(an\s+)?hour\b/g, ' ');
+  }
+  if (/quarter\s+(of\s+an\s+)?hour\b/.test(text)) {
+    addSeconds(0.25, 'hour');
+    text = text.replace(/quarter\s+(of\s+an\s+)?hour\b/g, ' ');
+  }
+
+  const durationRegex = /(\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(hours?|hrs?|hr|minutes?|mins?|min|seconds?|secs?|sec)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = durationRegex.exec(text)) !== null) {
+    const amount = parseAmountToken(match[1]);
+    if (amount != null) {
+      addSeconds(amount, match[2]);
+    }
+  }
+
+  if (!matched || totalSeconds <= 0) {
+    return undefined;
+  }
+  return clampTimerSeconds(totalSeconds);
+}
+
+function resolveStepTimerSeconds(instruction: string, timerSeconds?: number): number | undefined {
+  const extracted = extractTimerSecondsFromInstruction(instruction);
+  const provided = typeof timerSeconds === 'number' && timerSeconds > 0
+    ? clampTimerSeconds(timerSeconds)
+    : undefined;
+
+  if (extracted != null && provided != null) {
+    const variance = Math.abs(extracted - provided);
+    // If instruction text has an explicit different time, trust the text for better dish accuracy.
+    return variance >= Math.max(30, provided * 0.4) ? extracted : provided;
+  }
+  return extracted ?? provided;
 }
 
 function formatSuggestionsForTts(text: string): string {
@@ -184,6 +311,8 @@ function StepTimer({
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const endAtMsRef = useRef<number | null>(null);
+  const completionNotifiedRef = useRef(false);
 
   const doneTitle = isTagalog(language) ? 'Tapos na ang timer' : 'Timer finished';
   const doneSubtitle = isTagalog(language)
@@ -191,31 +320,70 @@ function StepTimer({
     : 'This step is done. You can continue to the next step.';
 
   useEffect(() => {
-    if (running && remaining > 0) {
-      interval.current = setInterval(() => {
-        setRemaining(r => {
-          if (r <= 1) {
-            clearInterval(interval.current!);
-            setRunning(false);
-            setDone(true);
-            try {
-              Vibration.vibrate([0, 300, 200, 300]);
-            } catch {
-              // Ignore vibration failures so timer completion still works.
-            }
-            if (!muted) {
-              Tts.speak(isTagalog(language)
-                ? 'Tapos na ang timer. Tapos na ang hakbang na ito.'
-                : 'Timer is up. This cooking step is done.');
-            }
-            onFinished(doneTitle, doneSubtitle);
-            return 0;
-          }
-          return r - 1;
-        });
-      }, 1000);
+    // When moving to a different step timer, reset local timer state.
+    if (interval.current) {
+      clearInterval(interval.current);
+      interval.current = null;
     }
-    return () => clearInterval(interval.current!);
+    endAtMsRef.current = null;
+    completionNotifiedRef.current = false;
+    setRunning(false);
+    setDone(false);
+    setRemaining(seconds);
+  }, [seconds]);
+
+  useEffect(() => {
+    if (!running) {
+      if (interval.current) {
+        clearInterval(interval.current);
+        interval.current = null;
+      }
+      return;
+    }
+
+    interval.current = setInterval(() => {
+      const endAt = endAtMsRef.current;
+      if (!endAt) {
+        return;
+      }
+
+      const nextRemaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setRemaining(prev => (prev === nextRemaining ? prev : nextRemaining));
+
+      if (nextRemaining > 0) {
+        return;
+      }
+
+      if (interval.current) {
+        clearInterval(interval.current);
+        interval.current = null;
+      }
+      endAtMsRef.current = null;
+      setRunning(false);
+      setDone(true);
+
+      if (!completionNotifiedRef.current) {
+        completionNotifiedRef.current = true;
+        try {
+          Vibration.vibrate([0, 300, 200, 300]);
+        } catch {
+          // Ignore vibration failures so timer completion still works.
+        }
+        if (!muted) {
+          Tts.speak(isTagalog(language)
+            ? 'Tapos na ang timer. Tapos na ang hakbang na ito.'
+            : 'Timer is up. This cooking step is done.');
+        }
+        onFinished(doneTitle, doneSubtitle);
+      }
+    }, 250);
+
+    return () => {
+      if (interval.current) {
+        clearInterval(interval.current);
+        interval.current = null;
+      }
+    };
   }, [running, muted, language, onFinished, doneTitle, doneSubtitle]);
 
   const mins = Math.floor(remaining / 60);
@@ -223,7 +391,12 @@ function StepTimer({
   const label = `${mins}:${secs.toString().padStart(2, '0')}`;
 
   const reset = () => {
-    clearInterval(interval.current!);
+    if (interval.current) {
+      clearInterval(interval.current);
+      interval.current = null;
+    }
+    endAtMsRef.current = null;
+    completionNotifiedRef.current = false;
     setRemaining(seconds);
     setRunning(false);
     setDone(false);
@@ -236,7 +409,22 @@ function StepTimer({
         <Text style={timerStyles.time}>{done ? 'Done!' : label}</Text>
         {!done ? (
           <Pressable
-            onPress={() => setRunning(r => !r)}
+            onPress={() => {
+              if (running) {
+                setRunning(false);
+                endAtMsRef.current = null;
+                return;
+              }
+
+              const startFrom = remaining > 0 ? remaining : seconds;
+              if (remaining <= 0) {
+                setRemaining(seconds);
+                setDone(false);
+              }
+              completionNotifiedRef.current = false;
+              endAtMsRef.current = Date.now() + startFrom * 1000;
+              setRunning(true);
+            }}
             style={({pressed}) => [timerStyles.btn, pressed && timerStyles.btnPressed]}>
             <Text style={timerStyles.btnText}>{running ? 'Pause' : 'Start'}</Text>
           </Pressable>
@@ -546,9 +734,10 @@ Rules:
         .map((step, idx) => ({
           index: idx + 1,
           instruction: String(step.instruction).trim().replace(/^\d+[.)]\s*/, ''),
-          timerSeconds: typeof step.timerSeconds === 'number' && step.timerSeconds > 0
-            ? Math.round(step.timerSeconds)
-            : undefined,
+          timerSeconds: resolveStepTimerSeconds(
+            String(step.instruction).trim().replace(/^\d+[.)]\s*/, ''),
+            step.timerSeconds,
+          ),
         }));
       setSteps(parsed);
       const user = auth().currentUser;

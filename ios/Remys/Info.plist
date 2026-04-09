@@ -51,6 +51,10 @@
 	<array>
 		<string>CormorantGaramond-Light.ttf</string>
 		<string>IMFellEnglish-Italic.ttf</string>
+		<string>Inter_24pt-Italic.ttf</string>
+		<string>Inter_24pt-Medium.ttf</string>
+		<string>Inter_24pt-Regular.ttf</string>
+		<string>Lora-Bold.ttf</string>
 		<string>PlayfairDisplay-BoldItalic.ttf</string>
 	</array>
 </dict>

@@ -1,0 +1,57 @@
+
+[1/9] Checking required tools...
+
+[2/9] Creating React Native app VerifyDefaultLog (RN 0.76.9)...
+                                                          
+               ######                ######               
+             ###     ####        ####     ###             
+            ##          ###    ###          ##            
+            ##             ####             ##            
+            ##             ####             ##            
+            ##           ##    ##           ##            
+            ##         ###      ###         ##            
+             ##  ########################  ##             
+          ######    ###            ###    ######          
+      ###     ##    ##              ##    ##     ###      
+   ###         ## ###      ####      ### ##         ###   
+  ##           ####      ########      ####           ##  
+ ##             ###     ##########     ###             ## 
+  ##           ####      ########      ####           ##  
+   ###         ## ###      ####      ### ##         ###   
+      ###     ##    ##              ##    ##     ###      
+          ######    ###            ###    ######          
+             ##  ########################  ##             
+            ##         ###      ###         ##            
+            ##           ##    ##           ##            
+            ##             ####             ##            
+            ##             ####             ##            
+            ##          ###    ###          ##            
+             ###     ####        ####     ###             
+               ######                ######               
+                                                          
+
+              Welcome to React Native 0.76.9!                
+                 Learn once, write anywhere               
+
+- Downloading template
+✔ Downloading template
+- Copying template
+✔ Copying template
+- Processing template
+✔ Processing template
+✔ Dependencies installation skipped
+- Initializing Git repository
+✔ Initializing Git repository
+
+  
+  Run instructions for Android:
+    • Have an Android emulator running (quickest way to get started), or a device connected.
+    • cd "C:\projects\Remys\.tmp-verify-default-log\VerifyDefaultLog" && npx react-native run-android
+  
+  Run instructions for Windows:
+    • See https://aka.ms/ReactNativeGuideWindows for the latest up-to-date instructions.
+    
+  
+
+[3/9] Installing runtime dependencies (exact versions)...
+^CTerminate batch job (Y/N)? Terminate batch job (Y/N)? 

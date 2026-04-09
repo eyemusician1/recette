@@ -18,8 +18,8 @@ import {ENV} from '../env';
 import {FoodPreferenceStrictness, TtsLanguage} from '../services/authService';
 import {buildFoodPreferenceInstruction} from '../utils/foodPreferences';
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.3-70b-versatile';
+// Point this to your deployed backend cache API
+const BACKEND_AI_API_URL = 'http://localhost:3001/ai/ask'; // Change to your server URL
 const REMY_LOGO = require('../../assets/images/remy.png');
 
 type ChatMessage = {
@@ -39,22 +39,31 @@ type Props = {
   strictness?: FoodPreferenceStrictness;
 };
 
+// Simple in-memory cache for repeated queries (per session)
+const aiCache = new Map<string, string>();
+
+function hashMessages(messages: {role: string; content: string}[]): string {
+  // Simple hash: join roles and contents
+  return messages.map(m => `${m.role}:${m.content}`).join('\n');
+}
+
 async function askGroq(messages: {role: string; content: string}[]) {
-  const res = await fetch(GROQ_API_URL, {
+  const key = hashMessages(messages);
+  if (aiCache.has(key)) {
+    return aiCache.get(key)!;
+  }
+  // Call backend cache API
+  const res = await fetch(BACKEND_AI_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${ENV.GROQ_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 900,
-      temperature: 0.35,
-      messages,
-    }),
+    body: JSON.stringify({ messages }),
   });
   const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
+  const reply = data.reply ?? '';
+  aiCache.set(key, reply);
+  return reply;
 }
 
 function buildRemySystemPrompt(

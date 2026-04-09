@@ -3,6 +3,19 @@ import firestore from '@react-native-firebase/firestore';
 import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import {Platform} from 'react-native';
 
+type SignInSuccess = {
+  success: true;
+  user: any;
+  isNewUser?: boolean;
+};
+
+type SignInFailure = {
+  success: false;
+  error: string;
+};
+
+type SignInResult = SignInSuccess | SignInFailure;
+
 export type TtsLanguage = 'en-US' | 'tl-PH';
 export type TtsVoiceGender = 'male' | 'female';
 export type FoodPreferenceStrictness = 'prefer' | 'avoid' | 'strict';
@@ -20,7 +33,7 @@ export function configureGoogleSignIn() {
   });
 }
 
-export async function signInWithGoogle() {
+export async function signInWithGoogle(): Promise<SignInResult> {
   try {
     await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
     const signInResult: any = await GoogleSignin.signIn();
@@ -43,8 +56,9 @@ export async function signInWithGoogle() {
 
     const googleCredential = auth.GoogleAuthProvider.credential(idToken);
     const result = await auth().signInWithCredential(googleCredential);
+    const isNewUser = Boolean(result.additionalUserInfo?.isNewUser);
     await upsertUserProfile(result.user);
-    return {success: true, user: result.user};
+    return {success: true, user: result.user, isNewUser};
   } catch (error: any) {
     if (error.code === statusCodes.SIGN_IN_CANCELLED) {
       return {success: false, error: 'Sign in cancelled'};
@@ -92,6 +106,7 @@ export async function upsertUserProfile(user: any) {
       ttsLanguage: 'en-US',
       ttsVoiceGender: 'male',
       hasSeenDiscoverWelcome: false,
+        hasSeenAppTips: false,
       createdAt: firestore.FieldValue.serverTimestamp(),
       updatedAt: firestore.FieldValue.serverTimestamp(),
     });
@@ -138,6 +153,14 @@ export async function markDiscoverWelcomeSeen(uid: string) {
   await firestore().collection('users').doc(uid).set({
     uid,
     hasSeenDiscoverWelcome: true,
+    updatedAt: firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+
+export async function markAppTipsSeen(uid: string) {
+  await firestore().collection('users').doc(uid).set({
+    uid,
+    hasSeenAppTips: true,
     updatedAt: firestore.FieldValue.serverTimestamp(),
   }, {merge: true});
 }

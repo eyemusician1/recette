@@ -15,7 +15,6 @@ import Ion from 'react-native-vector-icons/Ionicons';
 import {palette, spacing, typography} from '../tokens';
 import {AlertDialog} from '../components/AlertDialog';
 import {FoodPreferenceStrictness, signOut, getUserProfile, updateTtsSettings, TtsLanguage, updateFoodPreferences} from '../services/authService';
-import {getSavedRecipes, getCookHistory} from '../services/recipeService';
 import {splitExcludedIngredients} from '../utils/foodPreferences';
 
 // ─── Available dietary options ────────────────────────────────────────────────
@@ -275,10 +274,9 @@ function ExcludedIngredientsModal({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export function ProfileScreen() {
   const user = auth().currentUser;
+  const firstName = user?.displayName?.trim().split(/\s+/)[0] || 'Chef';
+  const avatarLetter = firstName.charAt(0).toUpperCase() || 'C';
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
-  const [savedCount, setSavedCount] = useState(0);
-  const [historyCount, setHistoryCount] = useState(0);
-  const [statsLoading, setStatsLoading] = useState(true);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [allergyPrefs, setAllergyPrefs] = useState<string[]>([]);
   const [excludedIngredients, setExcludedIngredients] = useState<string[]>([]);
@@ -297,7 +295,6 @@ export function ProfileScreen() {
 
   useEffect(() => {
     if (!user) {return;}
-    loadStats();
     loadProfile();
 
     return () => {
@@ -306,22 +303,6 @@ export function ProfileScreen() {
       }
     };
   }, []);
-
-  const loadStats = async () => {
-    if (!user) {return;}
-    try {
-      const [saved, history] = await Promise.all([
-        getSavedRecipes(user.uid),
-        getCookHistory(user.uid),
-      ]);
-      setSavedCount(saved.length);
-      setHistoryCount(history.length);
-    } catch (e) {
-      console.warn('Failed to load stats', e);
-    } finally {
-      setStatsLoading(false);
-    }
-  };
 
   const loadProfile = async () => {
     if (!user) {return;}
@@ -448,36 +429,20 @@ export function ProfileScreen() {
 
       {/* ── Hero ── */}
       <View style={styles.hero}>
-        {user?.photoURL ? (
-          <Image source={{uri: user.photoURL}} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarFallback}>
-            <Text style={styles.avatarInitials}>
-              {user?.displayName?.charAt(0).toUpperCase() ?? 'R'}
-            </Text>
-          </View>
-        )}
-        <Text style={styles.userName}>{user?.displayName ?? 'Chef'}</Text>
-        <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
+        <View style={styles.heroHeaderRow}>
+          {user?.photoURL ? (
+            <Image source={{uri: user.photoURL}} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatarFallback}>
+              <Text style={styles.avatarInitials}>{avatarLetter}</Text>
+            </View>
+          )}
 
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            {statsLoading ? (
-              <ActivityIndicator color={palette.terracotta} size="small" />
-            ) : (
-              <Text style={styles.statValue}>{savedCount}</Text>
-            )}
-            <Text style={styles.statLabel}>Saved</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            {statsLoading ? (
-              <ActivityIndicator color={palette.terracotta} size="small" />
-            ) : (
-              <Text style={styles.statValue}>{historyCount}</Text>
-            )}
-            <Text style={styles.statLabel}>Cooked</Text>
+          <View style={styles.heroTexts}>
+            <Text style={styles.welcomeTitle}>{firstName}</Text>
+            <Text style={styles.welcomeSubtitle} numberOfLines={1}>
+              {user?.email ?? 'Signed in account'}
+            </Text>
           </View>
         </View>
       </View>
@@ -703,85 +668,61 @@ export function ProfileScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: palette.bg},
-  content: {paddingBottom: spacing.xxxl},
+  content: {paddingBottom: spacing.xxxl, paddingTop: spacing.md},
 
   // Hero
   hero: {
-    alignItems: 'center',
-    paddingTop: spacing.xxl,
+    paddingTop: spacing.xl,
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
-    backgroundColor: 'rgba(200,82,42,0.04)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.border,
+    paddingBottom: spacing.sm,
     marginBottom: spacing.lg,
   },
+  heroHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 16,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+  },
   avatar: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    marginBottom: spacing.md,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     borderWidth: 2,
     borderColor: palette.white,
   },
   avatarFallback: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     backgroundColor: palette.terracotta,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.md,
     borderWidth: 2,
     borderColor: palette.white,
   },
   avatarInitials: {
     fontFamily: typography.serif,
-    fontSize: 36,
+    fontSize: 28,
     color: palette.white,
   },
-  userName: {
-    fontFamily: typography.serif,
-    fontSize: 27,
-    color: palette.ink,
-    marginBottom: 3,
-  },
-  userEmail: {
-    fontFamily: typography.cormorant,
-    fontSize: 17,
-    color: palette.muted,
-    marginBottom: spacing.xl,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    backgroundColor: palette.white,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 14,
-    width: '100%',
-  },
-  statItem: {
+  heroTexts: {
     flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
   },
-  statValue: {
+  welcomeTitle: {
     fontFamily: typography.serif,
     fontSize: 30,
     color: palette.ink,
-    marginBottom: 2,
+    lineHeight: 33,
   },
-  statLabel: {
+  welcomeSubtitle: {
     fontFamily: typography.cormorant,
-    fontSize: 14,
+    fontSize: 17,
     color: palette.muted,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-  statDivider: {
-    width: StyleSheet.hairlineWidth,
-    backgroundColor: palette.border,
-    marginVertical: spacing.md,
   },
 
   // Groups

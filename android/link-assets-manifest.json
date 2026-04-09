@@ -10,6 +10,22 @@
       "sha1": "9df3afd420f0c7a34aebd4fbd2c361b072ee6b0d"
     },
     {
+      "path": "assets/fonts/Inter_24pt-Italic.ttf",
+      "sha1": "eb4fb205a438f0e3eb85039a40cd2cf23c774523"
+    },
+    {
+      "path": "assets/fonts/Inter_24pt-Medium.ttf",
+      "sha1": "3b9f3360ca812f2076db0bfc8bed4cfdd951e74f"
+    },
+    {
+      "path": "assets/fonts/Inter_24pt-Regular.ttf",
+      "sha1": "b9984093c0b2b612da5e58e4d4e1ba8c255353dc"
+    },
+    {
+      "path": "assets/fonts/Lora-Bold.ttf",
+      "sha1": "e24126e8c27fdd834acb1ccf27054aeeb90ef492"
+    },
+    {
       "path": "assets/fonts/PlayfairDisplay-BoldItalic.ttf",
       "sha1": "5e5a5d9a16f0c8a5ffd6afbc5ffa5b5af51916b1"
     }
