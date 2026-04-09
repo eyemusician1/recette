@@ -19,7 +19,7 @@ import {FoodPreferenceStrictness, TtsLanguage} from '../services/authService';
 import {buildFoodPreferenceInstruction} from '../utils/foodPreferences';
 
 // Point this to your deployed backend cache API
-const BACKEND_AI_API_URL = 'https://recette-production.up.railway.app/ai/ask'; // Railway deployed backend
+const BACKEND_AI_API_URL = 'https://recette-production.up.railway.app/ai/ask';
 const REMY_LOGO = require('../../assets/images/remy.png');
 
 type ChatMessage = {
@@ -43,7 +43,6 @@ type Props = {
 const aiCache = new Map<string, string>();
 
 function hashMessages(messages: {role: string; content: string}[]): string {
-  // Simple hash: join roles and contents
   return messages.map(m => `${m.role}:${m.content}`).join('\n');
 }
 
@@ -52,16 +51,29 @@ async function askGroq(messages: {role: string; content: string}[]) {
   if (aiCache.has(key)) {
     return aiCache.get(key)!;
   }
-  // Call backend cache API
+
   const res = await fetch(BACKEND_AI_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({messages}),
   });
+
+  // Throw on HTTP-level errors so the catch block in send() shows the error message
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any)?.error ?? `Server error: ${res.status}`);
+  }
+
   const data = await res.json();
   const reply = data.reply ?? '';
+
+  if (!reply) {
+    throw new Error('Empty reply from server');
+  }
+
+  // Only cache valid non-empty replies
   aiCache.set(key, reply);
   return reply;
 }

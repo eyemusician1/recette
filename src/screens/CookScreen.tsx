@@ -274,25 +274,73 @@ function formatSuggestionsForTts(text: string): string {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Robustly extract a JSON array from model output that may be wrapped in an
+ * object, prefixed with a preamble sentence, or still have leftover markdown
+ * fences that the simple replace didn't catch.
+ */
+function extractJsonArray(text: string): Step[] {
+  // Strip any remaining markdown fences (handles ```json, ```, etc.)
+  let clean = text.replace(/```[\w]*\n?/g, '').trim();
+
+  // If the model wrapped steps in an object e.g. {"steps":[...]} unwrap it
+  const objMatch = clean.match(/^\{[\s\S]*?"(?:steps|instructions?|data)":\s*(\[[\s\S]*?\])\s*\}$/i);
+  if (objMatch) {
+    clean = objMatch[1];
+  }
+
+  // Find the first JSON array in the string (handles preamble sentences)
+  const arrayMatch = clean.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) {
+    throw new Error('No JSON array found in model response');
+  }
+
+  const parsed = JSON.parse(arrayMatch[0]);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Parsed JSON is not an array');
+  }
+  return parsed;
+}
+
 async function askGroq(
   messages: {role: string; content: string}[],
   options?: {maxTokens?: number; temperature?: number},
 ) {
-  const res = await fetch(GROQ_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: options?.maxTokens ?? 900,
-      temperature: options?.temperature ?? 0.35,
-      messages,
-    }),
-  });
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
+  // Abort the request if it takes longer than 20 seconds
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+
+  try {
+    const res = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: options?.maxTokens ?? 900,
+        temperature: options?.temperature ?? 0.35,
+        messages,
+      }),
+      signal: controller.signal,
+    });
+
+    // Throw on HTTP-level errors (4xx rate limits, 5xx server errors, etc.)
+    if (!res.ok) {
+      throw new Error(`Groq API error: ${res.status} ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? '';
+    if (!content) {
+      throw new Error('Groq returned empty content');
+    }
+    return content;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ─── Timer Component ──────────────────────────────────────────────────────────
@@ -688,7 +736,7 @@ Sentence 3: a short confidence boost before cooking starts.`,
     }
   }, [phase, recipe, muted, contentLanguage]);
 
-  const loadSteps = async () => {
+  const loadSteps = async (attempt = 1) => {
     if (!recipe) return;
     setStepsLoading(true);
     try {
@@ -697,15 +745,15 @@ Sentence 3: a short confidence boost before cooking starts.`,
         content: `You are a professional chef assistant.
 Return only raw JSON with no markdown and no extra commentary.
 Every step must be concrete, sequential, and safe for a home cook.
-      Use direct action verbs and include specific cues when to move to the next step.
-      ${getAiLanguageInstruction(contentLanguage)}
-  ${buildFoodPreferenceInstruction(contentLanguage, {
-    dietaryPreferences: dietaryPrefs,
-    allergies: allergyPrefs,
-    excludedIngredients,
-        strictness: preferenceStrictness,
-  })}
-      Write every "instruction" value in ${isTagalog(contentLanguage) ? 'Tagalog' : 'English'}.`,
+Use direct action verbs and include specific cues when to move to the next step.
+${getAiLanguageInstruction(contentLanguage)}
+${buildFoodPreferenceInstruction(contentLanguage, {
+  dietaryPreferences: dietaryPrefs,
+  allergies: allergyPrefs,
+  excludedIngredients,
+  strictness: preferenceStrictness,
+})}
+Write every "instruction" value in ${isTagalog(contentLanguage) ? 'Tagalog' : 'English'}.`,
       }, {
         role: 'user',
         content: `Create detailed cooking steps for this recipe:
@@ -727,8 +775,8 @@ Rules:
 5) Include practical cues such as heat level, texture, color, smell, or doneness where useful.
 6) Keep output valid JSON only.`,
       }], {maxTokens: 1200, temperature: 0.3});
-      const clean = text.replace(/```json|```/g, '').trim();
-      const parsedRaw: Step[] = JSON.parse(clean);
+
+      const parsedRaw = extractJsonArray(text);
       const parsed = parsedRaw
         .filter(step => typeof step?.instruction === 'string' && step.instruction.trim().length > 0)
         .map((step, idx) => ({
@@ -739,7 +787,13 @@ Rules:
             step.timerSeconds,
           ),
         }));
+
+      if (parsed.length === 0) {
+        throw new Error('Parsed steps array is empty');
+      }
+
       setSteps(parsed);
+
       const user = auth().currentUser;
       if (user && recipe.id) {
         const stepText = parsed.map(step => step.instruction).filter(Boolean);
@@ -747,17 +801,43 @@ Rules:
           await cacheSavedRecipeSteps(user.uid, recipe.id, stepText, contentLanguage);
         }
       }
-      if (parsed.length > 0) {
-        speak(parsed[0].instruction, muted);
+      speak(parsed[0].instruction, muted);
+
+    } catch (err: any) {
+      console.warn(`[loadSteps] attempt ${attempt} failed:`, err?.message ?? err);
+
+      // Retry once automatically before falling back to cache
+      if (attempt < 2) {
+        setStepsLoading(false);
+        await new Promise(r => setTimeout(r, 1500));
+        return loadSteps(attempt + 1);
       }
-    } catch {
+
+      // Fall back to cached steps if available
       const languageCached = recipe.stepsByLanguage?.[contentLanguage] ?? [];
-      const cached = normalizeSteps(languageCached.length > 0 ? languageCached : (recipe.steps ?? []));
+      const cached = normalizeSteps(
+        languageCached.length > 0 ? languageCached : (recipe.steps ?? []),
+      );
+
       if (cached.length > 0) {
         setSteps(cached);
         speak(cached[0].instruction, muted);
       } else {
-        setSteps([{index: 1, instruction: 'Could not load steps. Connect to the internet once to cache this recipe for offline use.'}]);
+        const isNetworkError =
+          err?.name === 'AbortError' ||
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('fetch') ||
+          err?.message?.toLowerCase().includes('failed to fetch');
+
+        const errorMessage = isNetworkError
+          ? isTagalog(contentLanguage)
+            ? 'Hindi ma-load ang mga hakbang. Suriin ang iyong koneksyon sa internet at subukan ulit.'
+            : 'Could not load steps. Check your internet connection and try again.'
+          : isTagalog(contentLanguage)
+            ? 'Hindi ma-load ang mga hakbang. Hindi inaasahang tugon mula sa AI — pakisubukan ulit.'
+            : 'Could not load steps. The AI returned an unexpected response — please try again.';
+
+        setSteps([{index: 1, instruction: errorMessage}]);
       }
     } finally {
       setStepsLoading(false);
