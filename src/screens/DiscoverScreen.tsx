@@ -8,6 +8,7 @@ import {
   FlatList,
   ImageBackground,
   KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -483,7 +484,10 @@ Rules:
             placeholderTextColor={palette.muted}
             value={query}
             onChangeText={setQuery}
-            onSubmitEditing={() => scheduleSearch()}
+            onSubmitEditing={() => {
+              Keyboard.dismiss();
+              scheduleSearch();
+            }}
             returnKeyType="search"
             autoCorrect={false}
           />
@@ -500,6 +504,7 @@ Rules:
                 setSearched(false);
                 setLoading(false);
                 setError('');
+                Keyboard.dismiss();
               }}
               style={styles.clearBtn}>
               <View style={styles.clearX} />
@@ -510,7 +515,10 @@ Rules:
 
         {query.length > 0 && (
           <Pressable
-            onPress={() => scheduleSearch()}
+            onPress={() => {
+              Keyboard.dismiss();
+              scheduleSearch();
+            }}
             style={({pressed}) => [styles.searchSubmit, pressed && styles.searchSubmitPressed]}>
             <Text style={styles.searchSubmitText}>Search</Text>
           </Pressable>
