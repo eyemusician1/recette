@@ -8,7 +8,7 @@ const app = express();
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 const PORT = process.env.PORT || 3001;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.3-70b-versatile'; // or llama-3.1b-instant
+const MODEL = 'llama-3.1-7b-instant'; // switched to 3.1-7b-instant
 const CACHE_TTL = 60 * 60; // 1 hour
 
 app.use(express.json());

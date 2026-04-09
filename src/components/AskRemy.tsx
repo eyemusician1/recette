@@ -19,7 +19,7 @@ import {FoodPreferenceStrictness, TtsLanguage} from '../services/authService';
 import {buildFoodPreferenceInstruction} from '../utils/foodPreferences';
 
 // Point this to your deployed backend cache API
-const BACKEND_AI_API_URL = 'http://localhost:3001/ai/ask'; // Change to your server URL
+const BACKEND_AI_API_URL = 'https://recette-production.up.railway.app/ai/ask'; // Railway deployed backend
 const REMY_LOGO = require('../../assets/images/remy.png');
 
 type ChatMessage = {
