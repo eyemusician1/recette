@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Keyboard, // <--- 1. Imported Keyboard
   Modal,
+  PanResponder, // <--- 2. Imported PanResponder for swipe gestures
   Platform,
   Pressable,
   ScrollView,
@@ -133,10 +135,35 @@ export function AskRemy({
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false); // <--- State for full screen mode
   const scrollRef = useRef<ScrollView>(null);
+
+  // <--- 3. Gesture handler to detect swipes on the header
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 10,
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy < -30) {
+          // Swiped up
+          setIsFullScreen(true);
+        } else if (gestureState.dy > 30) {
+          // Swiped down
+          if (isFullScreen) {
+            setIsFullScreen(false); // Shrink back to 75%
+          } else {
+            handleClose(); // Close if already at 75%
+          }
+        }
+      },
+    })
+  ).current;
 
   const send = async () => {
     if (!chatInput.trim()) {return;}
+
+    Keyboard.dismiss(); // <--- 4. Dismisses the keyboard immediately upon sending
+
     const userMsg = chatInput.trim();
     setChatInput('');
     setMessages(m => [...m, {role: 'user', text: userMsg}]);
@@ -178,6 +205,8 @@ export function AskRemy({
   };
 
   const handleClose = () => {
+    Keyboard.dismiss();
+    setIsFullScreen(false); // Reset layout when closed
     onClose();
   };
 
@@ -189,10 +218,11 @@ export function AskRemy({
 
         <Pressable style={styles.dismiss} onPress={handleClose} />
 
-        <View style={styles.sheet}>
+        {/* 5. Dynamically change the height based on the swipe state */}
+        <View style={[styles.sheet, { height: isFullScreen ? '95%' : '75%' }]}>
 
-          {/* Header */}
-          <View style={styles.header}>
+          {/* Header attached with PanResponder */}
+          <View style={styles.header} {...panResponder.panHandlers}>
             <View style={styles.handle} />
             <Image source={REMY_LOGO} style={styles.headerAvatar} resizeMode="contain" />
             <Text style={styles.title}>Ask Rémy</Text>
@@ -286,7 +316,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.bg,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    height: '75%',
+    // height removed from here since it's now dynamically applied inline
     paddingBottom: spacing.xxl,
     borderTopWidth: 1,
     borderColor: palette.border,
